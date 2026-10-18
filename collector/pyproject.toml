@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 dev = "app:main"
+test = "pytest:main"
 
 [build-system]
 requires = ["setuptools>=77"]

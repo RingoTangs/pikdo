@@ -78,9 +78,13 @@ HTTPX 客户端在应用生命周期中复用并关闭；连接和连接池等�
 在 `collector` 目录执行：
 
 ```bash
-uv run pytest
+uv run test
 uv build
 ```
+
+`uv run test` 默认发现并运行全部测试，也支持传递 pytest 参数，
+例如 `uv run test -v` 或 `uv run test tests/test_parser.py -q`。
+原有 `uv run pytest` 仍然可用。
 
 测试使用完整 fixture 和 HTTPX MockTransport，不依赖真实网络。
 真实请求需另行启动服务，通过上述 curl 命令检查结果。
