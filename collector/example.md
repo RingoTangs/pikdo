@@ -1,0 +1,621 @@
+# 1. 移动端分享
+【小红书】【前3000单必出盘】 😆 3ukhXCGSwNE 😆 https://xhslink.com/m/9izjN4oPZd4 点击链接或者复制本条信息打开【小红书app】查看 CZ6125
+
+# 2. H5商品详情页URL
+https://www.xiaohongshu.com/goods-detail/6ab10b35d528ea0015dd1b7e
+
+# 3. 接口地址
+https://mall.xiaohongshu.com/api/store/jpd/edith/detail/h5/toc?version=0.0.5&item_id=6ab10b35d528ea0015dd1b7e
+
+# 4. 返回值
+{
+    "error_code": 0,
+    "success": true,
+    "msg": "ok",
+    "data": {
+        "template": "[{\"name\":\"appV4\",\"key\":\"app\",\"type\":\"block\",\"parent\":null},{\"name\":\"headerBarMainV2\",\"key\":\"headerBarMain\",\"parent\":\"app.slot.headerBarMain\",\"type\":\"block\"},{\"name\":\"headerBarPopup\",\"key\":\"headerBarPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"curtainRectangle\",\"key\":\"curtain\",\"parent\":\"app.slot.curtain\",\"type\":\"block\"},{\"name\":\"carouselRectangle\",\"key\":\"carousel\",\"type\":\"block\",\"parent\":\"app.slot.carousel\"},{\"name\":\"colorVariantsV1\",\"key\":\"colorVariants\",\"type\":\"block\",\"parent\":\"app.slot.colorVariants\"},{\"name\":\"priceWarmUpV2\",\"key\":\"priceWarmUp\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"priceV4\",\"key\":\"price\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"profitBarV5\",\"key\":\"profitBar\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"depositTailPayTimeV4\",\"key\":\"depositTailPayTime\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"descriptionV4\",\"key\":\"description\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"descriptionExtraInfoV1\",\"key\":\"descriptionExtraInfo\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"redRankV4\",\"key\":\"redRank\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"depositSteps\",\"key\":\"depositSteps\",\"type\":\"block\",\"parent\":\"app.slot.basic\"},{\"name\":\"campaignBannerV4\",\"key\":\"campaignBanner\",\"type\":\"block\",\"parent\":\"app.slot.campaignBanner\"},{\"name\":\"membershipV4\",\"key\":\"membership\",\"type\":\"block\",\"parent\":\"app.slot.membership\"},{\"name\":\"serviceAssuranceV5\",\"key\":\"serviceMain\",\"type\":\"block\",\"parent\":\"app.slot.service\"},{\"name\":\"profitBarPopupV2\",\"key\":\"profitBarPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"installmentV1\",\"key\":\"installment\",\"type\":\"block\",\"parent\":\"app.slot.service\"},{\"name\":\"installmentPopup\",\"key\":\"installmentPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"displayO2OShopV4\",\"key\":\"displayO2OShop\",\"parent\":\"app.slot.service\",\"type\":\"block\"},{\"name\":\"selectedV4\",\"key\":\"selected\",\"type\":\"block\",\"parent\":\"app.slot.service\"},{\"name\":\"goodsDistributeV4\",\"key\":\"goodsDistribute\",\"type\":\"block\",\"parent\":\"app.slot.service\"},{\"name\":\"redLabel\",\"key\":\"redLabel\",\"type\":\"block\",\"parent\":\"app.slot.redLabel\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"unboxing\",\"key\":\"unboxing\",\"type\":\"block\",\"parent\":\"app.slot.comments\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"sellerV4\",\"key\":\"seller\",\"type\":\"block\",\"parent\":\"app.slot.shop\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"shopRecommendV4\",\"key\":\"shopRecommend\",\"type\":\"block\",\"parent\":\"app.slot.shop\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"lookAgain\",\"key\":\"lookAgain\",\"type\":\"block\",\"parent\":\"app.slot.lookAgain\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"graphicDetailsV4\",\"key\":\"graphicDetails\",\"type\":\"block\",\"parent\":\"app.slot.graphicDetails\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"productDetail\",\"key\":\"productDetail\",\"parent\":\"graphicDetails\",\"type\":\"block\",\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"extraInfoV4\",\"key\":\"extraInfo\",\"type\":\"block\",\"parent\":\"app.slot.extraInfo\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"normalFaqV4\",\"key\":\"normalFaq\",\"type\":\"block\",\"parent\":\"extraInfo\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"variantsParams\",\"key\":\"variantsParams\",\"type\":\"block\",\"parent\":\"extraInfo\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"priceDescriptionV4\",\"key\":\"priceDescription\",\"type\":\"block\",\"parent\":\"extraInfo\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"consumeWarningV4\",\"key\":\"consumeWarning\",\"type\":\"block\",\"parent\":\"extraInfo\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"feedsTitleV4\",\"key\":\"feedsTitle\",\"type\":\"block\",\"parent\":\"app.slot.feedsTitle\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"feedsCardV4\",\"key\":\"feedsCard\",\"type\":\"block\",\"parent\":\"app.slot.feedsCard\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"couponTip\",\"key\":\"couponTip\",\"type\":\"block\",\"parent\":\"app.slot.bottomBarMain\"},{\"name\":\"bottomBarPro\",\"key\":\"bottomBarMain\",\"type\":\"block\",\"parent\":\"app.slot.bottomBarMain\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"servicePopup\",\"key\":\"servicePopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"cpsPopup\",\"key\":\"cpsPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"fashionCouponPopup\",\"key\":\"fashionCouponPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"variantsContainer\",\"key\":\"variantsContainer\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"addCartTips\",\"key\":\"addCartTips\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"membershipPopup\",\"key\":\"membershipPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"distributePopup\",\"key\":\"distributePopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"runtime\"}]},{\"name\":\"liveBar\",\"key\":\"liveBar\",\"parent\":null,\"type\":\"block\",\"strategies\":[{\"type\":\"event\"}]},{\"name\":\"liveVideoBar\",\"key\":\"liveVideoBar\",\"parent\":\"app.slot.liveVideoBar\",\"type\":\"block\",\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"genuinePopup\",\"key\":\"genuinePopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"couponRemindPopup\",\"key\":\"couponRemindPopup\",\"type\":\"block\",\"parent\":null,\"strategies\":[{\"type\":\"event\"},{\"type\":\"runtime\"}]},{\"name\":\"pluginBoostV4\",\"key\":\"pluginBoost\",\"parent\":null,\"type\":\"block\"}]",
+        "template_data": [
+            {
+                "installmentPopupV1": {
+                    "title": null,
+                    "tips": null,
+                    "notice": null,
+                    "steps": []
+                },
+                "sellerH5": {
+                    "logo": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo321s2nvvfms005qfkhr90g5031pilho8?imageView2/2/w/120/format/jpg",
+                    "name": "拾野de食光的店",
+                    "link": "https://www.xiaohongshu.com/shop/6a3a4e1875fa89001599ba2d",
+                    "tag": null,
+                    "grade": "4.0",
+                    "sellerScore": "4.20",
+                    "sellerScoreText": "卖家口碑",
+                    "slogan": null,
+                    "skuCount": null,
+                    "nextTitle": "进店逛逛",
+                    "id": "6a3a4e1875fa89001599ba2d",
+                    "fansAmount": "粉丝数 6210",
+                    "salesVolume": "已售 2.3万"
+                },
+                "descriptionH5": {
+                    "name": "高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘 · 盲盒随机3件（不保证出盘）",
+                    "skuId": "6ab10b35d528ea0015dd1b7e",
+                    "tags": [],
+                    "itemAnalysisDataText": null,
+                    "isFollowed": false,
+                    "hasFollowed": false
+                },
+                "bottomBarMainH5": {
+                    "skuId": "6ab10b35d528ea0015dd1b7e",
+                    "seller": {
+                        "sellerId": "6a3a4e1875fa89001599ba2d",
+                        "link": "https://www.xiaohongshu.com/shop/6a3a4e1875fa89001599ba2d",
+                        "logo": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo321s2nvvfms005qfkhr90g5031pilho8?imageView2/2/w/120/format/jpg",
+                        "name": null
+                    },
+                    "showCustomerService": true,
+                    "customerServiceName": "客服",
+                    "customerServiceLink": "xhsdiscover://rn/eva-seraph/seller/6a3a4e1875fa89001599ba2d/chat?goods_id=6ab10b35d528ea0015dd1b7e",
+                    "isFollowed": null,
+                    "cartItemCount": null,
+                    "activityInfo": null,
+                    "buttons": [
+                        {
+                            "type": "addCart",
+                            "text": "加入购物车",
+                            "subText": "",
+                            "actionType": "addCart",
+                            "styleType": "RedA6",
+                            "isDepositSale": null,
+                            "depositPrice": null,
+                            "link": null,
+                            "primaryLink": null,
+                            "tradeExt": null,
+                            "avatarUrl": null,
+                            "avatarHolderUrl": null,
+                            "dealPrice": null,
+                            "countDown": null,
+                            "customAction": null
+                        },
+                        {
+                            "type": "instantBuy",
+                            "text": "立即购买",
+                            "subText": "",
+                            "actionType": "instantBuy",
+                            "styleType": null,
+                            "isDepositSale": null,
+                            "depositPrice": null,
+                            "link": null,
+                            "primaryLink": null,
+                            "tradeExt": null,
+                            "avatarUrl": null,
+                            "avatarHolderUrl": null,
+                            "dealPrice": null,
+                            "countDown": null,
+                            "customAction": null
+                        }
+                    ],
+                    "price": 999,
+                    "isSingleVariant": false,
+                    "couponInfos": [],
+                    "dealPrice": null,
+                    "qualificationInfo": null,
+                    "onSaleSubscribeData": null,
+                    "deliveryInfo": {
+                        "ableToDelivery": true,
+                        "unableToDeliveryText": null,
+                        "buttonText": null
+                    }
+                },
+                "priceH5": {
+                    "highlightPrice": 19.99,
+                    "priceIntegerPart": "19",
+                    "priceDecimalPart": "99",
+                    "dealPrice": {
+                        "price": 9.99,
+                        "type": 3,
+                        "priceText": "到手价",
+                        "isShowPricePop": true
+                    },
+                    "promotion": null,
+                    "itemAnalysisDataText": "已售2.3万+",
+                    "isFollowed": null,
+                    "hasFollowed": false,
+                    "multipleDiscount": [],
+                    "countDown": null,
+                    "backgroundImage": null,
+                    "tags": []
+                },
+                "servicePopupV2": {
+                    "title": null,
+                    "list": [
+                        {
+                            "title": "极速退款",
+                            "description": "满足相应条件时，信用良好的用户申请【未发货退款】或【申请退货且将退货寄出后】，享受钱款直接到账权益",
+                            "link": null,
+                            "showWarehouse": null,
+                            "icon": "https://qimg.xiaohongshu.com/beerdemo/90a8e4f4bef8157c3a390a7d90ca8f97193dea00?sign=309bb3bdec44f4d7a04008659687fff6&t=7c245f00&aegis=fulishedetail",
+                            "type": null
+                        },
+                        {
+                            "title": "7天无理由退货",
+                            "description": "满足相应条件时，消费者可申请“七天无理由退货”。",
+                            "link": null,
+                            "showWarehouse": null,
+                            "icon": "https://qimg.xiaohongshu.com/beerdemo/90a8e4f4bef8157c3a390a7d90ca8f97193dea00?sign=309bb3bdec44f4d7a04008659687fff6&t=7c245f00&aegis=fulishedetail",
+                            "type": null
+                        },
+                        {
+                            "title": "晚发必赔",
+                            "description": "若商家发货时间超过承诺的发货时效，将按照规则赔付您至少3元无门槛薯券（特殊商品及不可抗力因素除外)。",
+                            "link": null,
+                            "showWarehouse": null,
+                            "icon": "https://qimg.xiaohongshu.com/beerdemo/90a8e4f4bef8157c3a390a7d90ca8f97193dea00?sign=309bb3bdec44f4d7a04008659687fff6&t=7c245f00&aegis=fulishedetail",
+                            "type": null
+                        }
+                    ],
+                    "level1": [],
+                    "banner": null
+                },
+                "descriptionExtraInfoV1": null,
+                "carouselH5": {
+                    "images": [
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/7e88d144-617e-491f-9d03-a68ca1695cbb?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1024,
+                            "height": 1024,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/1dcddca1-30fd-4e65-a792-f7e673a70864?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1024,
+                            "height": 1024,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/a86d494c-d833-4633-ab8a-7fa741c8cfb6?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1254,
+                            "height": 1254,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/c8e5e0d0-8ebc-43af-b993-38b23e494012?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1254,
+                            "height": 1254,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/60e64e53-d32b-409c-90fb-9fe531a851ab?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 800,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "//mall-i2.xhscdn.com/material_space/62b9297b-d8d4-4925-ba41-778f93934539?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 800,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        }
+                    ],
+                    "marketingImage": null,
+                    "video": null,
+                    "skuId": "6ab10b35d528ea0015dd1b7e",
+                    "stockStatus": 1
+                },
+                "depositSteps": null,
+                "priceWarmUp": {
+                    "price": null,
+                    "promotion": null,
+                    "tips": null,
+                    "backgroundImage": null
+                },
+                "selectedH5": {
+                    "text": "盲盒随机3件（不保证出盘）",
+                    "skuId": "6ab10b35d528ea0015dd1b7e",
+                    "desc": null,
+                    "specifications": []
+                },
+                "profitBarV1": {
+                    "name": "优惠",
+                    "tags": [
+                        "限时立减10"
+                    ],
+                    "queryPaymentMarketingInfo": false,
+                    "profitType": "PROMOTION",
+                    "couponTemplateId": null,
+                    "couponPromotionChannel": null,
+                    "promotionType": "TIME_LIMIT_SPECIAL_PRICE",
+                    "promotionId": "6ab334b076fadf001523ecd2",
+                    "paymentMarketingText": null,
+                    "depositId": null,
+                    "fissionTag": null
+                },
+                "fissionCoupon": null,
+                "graphicDetailsV4": {
+                    "brandCard": null,
+                    "shopActive": null,
+                    "brandAuthorization": null,
+                    "description": "",
+                    "images": [
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/2a3550f4-15b6-4c09-a7b2-7222b305504e?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1024,
+                            "height": 1024,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/363032d9-28ef-435f-a112-2d360c794282?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 1024,
+                            "height": 1024,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/a8a32d77-e83c-48f6-af67-6b9d0008ee76?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 800,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/1af80245-2574-444b-8819-2e9c774c8d16?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 800,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/3710d46c-6092-43af-a4c6-33fb96c1b073?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 796,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/33ffc835-c861-406f-9da9-87982b39dd50?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 796,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/7c0bfa61-47a8-4028-970f-c86a37b959f6?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 792,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/e2f0edf8-116a-4943-968d-3fa64332c077?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 794,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        },
+                        {
+                            "url": "https://mall-i2.xhscdn.com/material_space/a7897d03-4045-42b6-81f5-e04885c599a6?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                            "thumbnail": null,
+                            "width": 800,
+                            "height": 800,
+                            "sizeBanner": null,
+                            "cover": null,
+                            "videoId": null,
+                            "media": null,
+                            "type": null
+                        }
+                    ],
+                    "guide": null,
+                    "sellerId": "6a3a4e1875fa89001599ba2d",
+                    "eventId": null
+                },
+                "headerBarMainPopup": {
+                    "title": "更多功能",
+                    "list": [
+                        {
+                            "name": "友好市集",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/988195f77bce2ea719803b8bf89d731e41b6b424",
+                            "url": "xhsdiscover://home/store",
+                            "trackersComponent": "goods_detail:home/store",
+                            "data": null
+                        },
+                        {
+                            "name": "购物车",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/fa55abec26329f977ea2fa669b1591a3ea47c4bb",
+                            "url": "xhsdiscover://rn/lancer/user/shopping_cart?eaglet_id=1152&upstream=nns",
+                            "trackersComponent": "goods_detail:user_shopping_cart",
+                            "data": null
+                        },
+                        {
+                            "name": "订单",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/c618e573e86f867b4149cab9f465ea429612e265",
+                            "url": "xhsdiscover://rn/lancer-order/order/list",
+                            "trackersComponent": "goods_detail:https://www.xiaohongshu.com/order/list",
+                            "data": null
+                        },
+                        {
+                            "name": "卡券",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/9d573c638358852a11fccfad66777f9ba9857de8",
+                            "url": "https://www.xiaohongshu.com/activity/coupon/list",
+                            "trackersComponent": "goods_detail:https://www.xiaohongshu.com/activity/coupon/list",
+                            "data": null
+                        },
+                        {
+                            "name": "心愿单",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/c4860a6b04556fe1625ed1b8fdc1c893eb4922f3",
+                            "url": "https://www.xiaohongshu.com/wishlist/index",
+                            "trackersComponent": "goods_detail:https://www.xiaohongshu.com/wishlist/index",
+                            "data": null
+                        },
+                        {
+                            "name": "举报",
+                            "icon": "https://picasso-static.xiaohongshu.com/fe-platform/44e30acf8974268c4ae5a8b4895b84223edf8772.png",
+                            "url": "https://www.xiaohongshu.com/evaluation/tip-offs?goodsId=6ab10b35d528ea0015dd1b7e",
+                            "trackersComponent": "goods_detail:https://www.xiaohongshu.com/evaluation/tip-offs",
+                            "data": null
+                        },
+                        {
+                            "name": "分享",
+                            "icon": "https://picasso-static.xiaohongshu.com/picasso-editor/fbd0a7fddfad41242de3f59bbdffa2663da6f0c0",
+                            "url": null,
+                            "trackersComponent": null,
+                            "data": {
+                                "shareData": {
+                                    "instanceId": null,
+                                    "title": "高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘 · 盲盒随机3件（不保证出盘）",
+                                    "image": "https://mall-i2.xhscdn.com/material_space/7e88d144-617e-491f-9d03-a68ca1695cbb?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                                    "imageurl": "https://mall-i2.xhscdn.com/material_space/7e88d144-617e-491f-9d03-a68ca1695cbb?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL",
+                                    "linkurl": "https://www.xiaohongshu.com/goods-detail/6ab10b35d528ea0015dd1b7e?xsec_token=XBUr_dSZO33ArMS8xYq75XIiGKtb1RMV6DYMGe1CZjYk8=&xsec_source=app_share&instation_link=xhsdiscover%3A%2F%2Fgoods_detail%2F6ab10b35d528ea0015dd1b7e%26rn%3Dtrue",
+                                    "content": "",
+                                    "type": "ShareToFriend,WeixinSession,WeixinTimeline,SinaWeibo,QQ,QQSpace,copy,report",
+                                    "extension": {
+                                        "miniprogram": null,
+                                        "friend": "{\"type\":\"goodsDetail\",\"avatar\":\"https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo321s2nvvfms005qfkhr90g5031pilho8?imageView2/2/w/120/format/jpg\",\"officialVerifyType\":0,\"brandName\":\"拾野de食光的店\",\"brandId\":\"6a3a4e1875fa89001599ba2d\",\"image\":\"https://mall-i2.xhscdn.com/material_space/7e88d144-617e-491f-9d03-a68ca1695cbb?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL\",\"desc\":\"高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘 · 盲盒随机3件（不保证出盘）\",\"price\":999,\"id\":\"6ab10b35d528ea0015dd1b7e\",\"title\":\"高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘 · 盲盒随机3件（不保证出盘）\",\"content\":\"拾野de食光的店\",\"cover\":\"https://mall-i2.xhscdn.com/material_space/7e88d144-617e-491f-9d03-a68ca1695cbb?imageView2/2/w/1080/format/webp/q/80&ap=3&sc=STR_DTL\"}",
+                                        "reportUrl": null
+                                    },
+                                    "baseUrl": "https://www.xiaohongshu.com"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "descriptionMain": {
+                    "name": "高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘",
+                    "itemId": "6ab10b35d528ea0015dd1b7e",
+                    "tags": [],
+                    "spuAnalysisDataText": null,
+                    "isFollowed": null,
+                    "hasFollowed": null
+                },
+                "priceDescription": {
+                    "title": "价格说明",
+                    "list": [
+                        {
+                            "name": "划线价格",
+                            "value": "指商品的专柜价、吊牌价、正品零售价、厂商指导价或该商品的曾经展示过的销售价等，并非原价，仅供参考。"
+                        },
+                        {
+                            "name": "未划线价格",
+                            "value": "指商品的销售价，是您最终决定是否购买商品的依据。"
+                        },
+                        {
+                            "name": "折扣",
+                            "value": "页面显示的“折扣”为非划线价格与划线价格的对比，该对比值仅供您参考，不作为计算非划线价格的依据。"
+                        }
+                    ]
+                },
+                "profitBarPopupH5": {
+                    "title": "优惠",
+                    "formula": {
+                        "result": {
+                            "name": "到手价",
+                            "price": 9.99
+                        },
+                        "step": [
+                            {
+                                "name": "原始售价",
+                                "price": 19.99
+                            },
+                            {
+                                "name": "限时立减",
+                                "price": 10
+                            }
+                        ]
+                    },
+                    "promotion": null,
+                    "promotionV1": {
+                        "subTitle": "",
+                        "title": "相关优惠",
+                        "list": [
+                            {
+                                "entryText": null,
+                                "columnDisplay": false,
+                                "promotionId": "6ab334b076fadf001523ecd2",
+                                "promotionType": 4,
+                                "promotionChannel": null,
+                                "promotionName": null,
+                                "subTitle": null,
+                                "title": null,
+                                "name": "限时特价",
+                                "validateTime": "有效期至2028.09.01 00:00",
+                                "anchorName": null,
+                                "reminder": null,
+                                "textColor": null,
+                                "borderColor": null,
+                                "contents": [
+                                    {
+                                        "tag": "限时立减10",
+                                        "description": null,
+                                        "validateTime": "有效期至2028.09.01 00:00",
+                                        "giftGoods": [],
+                                        "textColor": null,
+                                        "borderColor": null
+                                    }
+                                ],
+                                "link": null,
+                                "orderRebateCouponTemplateId": null
+                            }
+                        ]
+                    },
+                    "coupon": null,
+                    "follow": {
+                        "name": "拾野de食光",
+                        "logo": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo321s2nvvfms005qfkhr90g5031pilho8?imageView2/2/w/80/format/jpg",
+                        "fansNum": 6210,
+                        "sellerUserId": "69f48ed20000000002001403",
+                        "sellerId": "6a3a4e1875fa89001599ba2d"
+                    }
+                },
+                "campaignBanner": {
+                    "componentCode": null,
+                    "resourceObjects": []
+                },
+                "consumeWarning": {
+                    "title": null,
+                    "text": null
+                },
+                "installmentV1": {
+                    "title": null,
+                    "text": null
+                },
+                "displayO2OShop": null,
+                "normalFaq": {
+                    "title": null,
+                    "list": []
+                },
+                "serviceV5": {
+                    "sceneType": null,
+                    "list": [
+                        {
+                            "name": "极速退款",
+                            "icon": "https://picasso-static.xiaohongshu.com/fe-platform/e624ca23a791ee2bc01871ebccd3a6d8f7f0d6a1.png",
+                            "type": null
+                        },
+                        {
+                            "name": "7天无理由退货",
+                            "icon": "https://picasso-static.xiaohongshu.com/fe-platform/e624ca23a791ee2bc01871ebccd3a6d8f7f0d6a1.png",
+                            "type": null
+                        },
+                        {
+                            "name": "晚发必赔",
+                            "icon": "https://picasso-static.xiaohongshu.com/fe-platform/e624ca23a791ee2bc01871ebccd3a6d8f7f0d6a1.png",
+                            "type": null
+                        }
+                    ],
+                    "level1": [],
+                    "brandGuarantee": null,
+                    "scrollingData": [],
+                    "carousel": null
+                },
+                "goodsDistributeV4": {
+                    "location": "广东潮州",
+                    "fee": "包邮",
+                    "shipmentIcon": null,
+                    "time": {
+                        "text": "48小时内发货",
+                        "mode": null,
+                        "tag": null,
+                        "tagWidth": null,
+                        "tagHeight": null,
+                        "color": null,
+                        "colorDark": null,
+                        "sepColor": null,
+                        "sepColorDark": null
+                    }
+                },
+                "headerBarMainV2": {
+                    "hasMoreButton": true,
+                    "hasComments": null,
+                    "searchLink": null,
+                    "sellerId": "6a3a4e1875fa89001599ba2d",
+                    "hasSearch": true,
+                    "hasPlaceholder": true,
+                    "hasFollowed": true,
+                    "isFollowed": false
+                },
+                "goodsDistributePopupV4": null,
+                "variantsParams": {
+                    "title": "规格参数",
+                    "list": [
+                        {
+                            "name": "商品名称",
+                            "value": "高颜值陶瓷釉下彩餐具惊喜餐具碗碟咖啡杯双耳碗摆盘"
+                        },
+                        {
+                            "name": "材质",
+                            "value": "陶瓷"
+                        }
+                    ]
+                },
+                "skuInfo": {
+                    "type": "normal"
+                }
+            }
+        ],
+        "template_version": "75",
+        "common_data": "{\"statisticInfo\":{\"skuNum\":6}}"
+    },
+    "force_update": null
+}
