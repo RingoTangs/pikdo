@@ -155,7 +155,7 @@ def test_v02_api_serialization(payload):
         create_app(httpx.MockTransport(lambda request: response_for(payload)))
     ) as client:
         response = client.get(PATH)
-        assert client.get("/openapi.json").json()["info"]["version"] == "0.2.0"
+        assert client.get("/openapi.json").json()["info"]["version"] == "0.3.0"
     assert response.status_code == 200
     result = response.json()
     assert result["price"] == {"current": "9.99", "display": "19.99", "currency": "CNY"}

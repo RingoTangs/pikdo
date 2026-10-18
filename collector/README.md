@@ -1,4 +1,4 @@
-# Pikdo Collector v0.2
+# Pikdo Collector v0.3.0
 
 小红书商品详情采集 API，使用 Python 3.13、uv、FastAPI 和 HTTPX。
 
@@ -266,3 +266,95 @@ JSON 使用 simplejson 与 Decimal，四空格缩进、保留中文、键顺序�
 `examples/` 中的 Markdown 和 JSON 使用相同格式规则；只调整排版，不运行脱敏或字段过滤。
 
 推荐提交前依次执行 `uv run format`、`uv run lint`、`uv run test -v` 和 `uv build`。
+
+## v0.3.0 商品输入解析
+
+新增 `POST /api/v1/xhs/products/resolve`，将输入解析为商品 ID 和无追踪参数的规范链接。
+本接口不自动采集商品详情，也不根据解析失败判断商品下架。
+
+| 输入类型     | 示例                                                                | source_type  | 网络请求         |
+| ------------ | ------------------------------------------------------------------- | ------------ | ---------------- |
+| 纯商品 ID    | `6ab10b35d528ea0015dd1b7e`                                          | `direct_id`  | 无               |
+| H5 商品链接  | `https://www.xiaohongshu.com/goods-detail/6ab10b35d528ea0015dd1b7e` | `h5_url`     | 无               |
+| 短链接       | `https://xhslink.com/m/9izjN4oPZd4`                                 | `short_url`  | 只请求受信任短链 |
+| 完整分享文案 | 下方真实样例                                                        | `share_text` | 含短链时需要     |
+
+```text
+【小红书】【前3000单必出盘】 😆 3ukhXCGSwNE 😆 https://xhslink.com/m/9izjN4oPZd4 点击链接或者复制本条信息打开【小红书app】查看 CZ6125
+```
+
+支持反斜杠转义的实际文本（注意 JSON 请求中每个反斜杠还需要转义一次）：
+
+```text
+【小红书】【前3000单必出盘】 😆 3ukhXCGSwNE 😆 https\://xhslink.com/m/9izjN4oPZd4 点击链接或者复制本条信息打开【小红书app】查看 CZ6125&#x20;
+```
+
+支持 `https://`、`https\://`、`https:\/\/` 和 URL 斜杠转义，
+首尾空格、多空格、换行、中文标点、emoji、Markdown 链接和尖括号/括号包装。
+HTML 实体如 `&#x20;`、`&amp;` 只解码一次；不反复解码或解码百分号编码内容。
+Markdown 或括号包装的 URL 归类为 `share_text`。
+
+```bash
+curl -X POST http://localhost:8000/api/v1/xhs/products/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"https://xhslink.com/m/9izjN4oPZd4"}'
+```
+
+成功结构（以上样例在短链跳转到该商品时）：
+
+```json
+{
+    "source_type": "short_url",
+    "item_id": "6ab10b35d528ea0015dd1b7e",
+    "canonical_url": "https://www.xiaohongshu.com/goods-detail/6ab10b35d528ea0015dd1b7e"
+}
+```
+
+纯 ID、H5 和完整分享文案对应同一商品时，返回相同的 `item_id` 和 `canonical_url`，
+仅 `source_type` 不同。需要完整商品信息时，再使用返回的 ID 调用已有接口：
+
+```bash
+curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
+```
+
+### 校验和重定向边界
+
+- `input` 必须是 1–8192 字符的字符串，不接受空白、其他 JSON 类型或额外请求字段。
+- ID 只在整个输入完整匹配时识别，统一小写；不在文案中搜索任意 24 位代码。
+- H5 只接受 HTTPS、精确域名 `xiaohongshu.com` / `www.xiaohongshu.com` 和商品路径。
+  允许末尾斜杠；只从 path 取 ID，绝不从 query、fragment、instation_link 或 token 取 ID。
+- 短链仅请求 `xhslink.com` / `www.xhslink.com`。路径支持一至两段字母、数字、下划线或连字符，
+  包括 `/m/短码`、`/a/短码` 和单段旧式短码；不接受空路径、点段或百分号编码路径。
+- 所有 URL 拒绝凭证、IP 字面量、未知域名和非 HTTPS；只允许缺省端口或 443。
+  请求按校验后的 hostname 和 path 重新构造，不发送分享 query 或 fragment。
+- 短链 GET 使用共享 HTTPX 客户端，不开启自动跳转、不自动重试。
+  手动处理 301/302/303/307/308，最多三次重定向响应；每一跳重新校验。
+  第三跳指向合法 H5 可成功，仍指向短链则失败，不发第四次请求。
+- 合法相对 Location 基于当前短链解析并重新校验；不可信目标不会被访问。
+  一旦 Location 是合法 H5 商品页，立即返回，不请求该 H5 页面或商品详情接口。
+- HTTPX 响应 hook 在库预构造下一跳请求之前校验 Location 并移除参数，避免构造不安全或带 token 的下一跳请求。
+- 完全相同的目标可去重；不同 ID、不同短链或 H5 与短链混合而不能本地证明一致时，
+  返回歧义错误，不随机选取，也不联网逐个消歧。输入中的未知域名 URL 会使解析失败。
+- 不记录原始输入、Location、分享 token 或异常原文；成功、业务错误和请求验证错误均不回显原始输入。
+
+### 解析错误
+
+解析错误仅包含 `code` 和 `message`，没有 `item_id`；原商品详情错误结构不变。
+
+| HTTP 状态 | code                          | 含义                                           |
+| --------- | ----------------------------- | ---------------------------------------------- |
+| 422       | `INVALID_PRODUCT_INPUT`       | 请求结构、长度、ID、协议、域名、凭证或端口非法 |
+| 422       | `PRODUCT_LINK_NOT_FOUND`      | 分享文字中未找到可识别链接                     |
+| 422       | `NOT_PRODUCT_LINK`            | 官方链接或可信最终目标不是受支持的商品路径     |
+| 422       | `AMBIGUOUS_PRODUCT_INPUT`     | 多个无法在本地确认一致的链接目标               |
+| 504       | `SHORT_URL_TIMEOUT`           | 短链请求超时                                   |
+| 502       | `SHORT_URL_CONNECTION_FAILED` | 短链连接、DNS 等传输失败                       |
+| 503       | `SHORT_URL_ACCESS_RESTRICTED` | HTTP 401/403/429/461                           |
+| 502       | `SHORT_URL_MISSING_LOCATION`  | 重定向没有有效 Location                        |
+| 502       | `UNTRUSTED_REDIRECT_TARGET`   | 不可信或非法跳转地址                           |
+| 502       | `SHORT_URL_REDIRECT_LIMIT`    | 重定向循环或超过预算                           |
+| 502       | `SHORT_URL_HTML_UNSUPPORTED`  | HTTP 200，没有可直接解析的 HTTP 重定向         |
+| 502       | `SHORT_URL_HTTP_ERROR`        | 其他上游 HTTP 状态                             |
+
+第一版不解析 JavaScript、HTML 跳转或验证码，不使用浏览器和代理池。
+自动化测试通过 MockTransport 覆盖跳转与异常，不依赖实时网络；真实短链是否仍有效需要单独验证。
