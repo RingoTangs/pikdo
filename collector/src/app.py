@@ -1,9 +1,10 @@
+import logging
 import re
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from xhs.client import XhsClient
 from xhs.errors import CollectionError
@@ -16,9 +17,14 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
         timeout = httpx.Timeout(connect=5, read=10, write=10, pool=5)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, transport=transport) as http:
             application.state.xhs = XhsClient(http)
+            logging.getLogger("uvicorn.error").info("接口文档：http://localhost:8000/docs")
             yield
 
     application = FastAPI(title="Pikdo Collector", lifespan=lifespan)
+
+    @application.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/docs", status_code=307)
 
     @application.exception_handler(CollectionError)
     async def handle_collection_error(request: Request, exc: CollectionError):

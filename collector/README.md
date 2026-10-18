@@ -10,11 +10,11 @@ uv sync
 uv run dev
 ```
 
-监听 `127.0.0.1:8000`。交互文档：<http://127.0.0.1:8000/docs>。
+监听 `127.0.0.1:8000`。服务入口 <http://localhost:8000/> 自动跳转至文档。交互文档：<http://localhost:8000/docs>。
 
 ```bash
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
+curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 ```
 
 `GET /health` 返回 `{"status":"ok"}`，不访问上游。
