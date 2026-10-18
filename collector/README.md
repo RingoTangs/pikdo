@@ -12,3 +12,5 @@ uv run dev
 `src/utils/text.py`，并使用 `from utils.text import ...` 导入。
 包含 `__init__.py` 的包会自动发现；新增独立的顶层 `.py` 模块时，
 需要将模块名称加入 `[tool.setuptools]` 的 `py-modules`。
+
+商品详情示例见 [examples/README.md](examples/README.md)。
