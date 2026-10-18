@@ -1,9 +1,11 @@
-import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
-from xhs.values import safe_json, safe_url, sensitive
+from xhs.parser import parse_product
+from xhs.values import safe_json, safe_url
+from conftest import ITEM_ID
 
 
 @pytest.mark.parametrize('url,expected', [
@@ -23,21 +25,11 @@ def test_safe_json_nested_and_nonfinite():
     assert safe_json('javascript://bad') is None
 
 
-def test_fixture_is_sanitized():
-    payload = json.loads((Path(__file__).parents[1] / 'examples/response.json').read_text())
-    def check(value):
-        if isinstance(value, dict):
-            assert all(not sensitive(k) for k in value)
-            for v in value.values():
-                check(v)
-        elif isinstance(value, list):
-            for v in value:
-                check(v)
-        elif isinstance(value, str):
-            assert 'xsec_token' not in value.lower()
-            if value.startswith(('http://', 'https://', '//', 'xhsdiscover://')):
-                assert safe_url(value, customer_service=True) == ('https:' + value if value.startswith('//') else value)
-            elif value.startswith(('{', '[')):
-                check(json.loads(value))
-    check(payload)
-    assert len(payload['data']['template_data'][0]) == 29
+
+def test_parser_preserves_original_fixture(payload):
+    path = Path(__file__).parents[1] / 'examples/response.json'
+    original_bytes = path.read_bytes()
+    original_payload = deepcopy(payload)
+    parse_product(payload, ITEM_ID)
+    assert payload == original_payload
+    assert path.read_bytes() == original_bytes

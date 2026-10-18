@@ -165,3 +165,15 @@ def test_v02_numeric_json_precision():
         result = client.get(PATH).json()
     assert result['price']['current'] == '9.99000000000000000000000001'
     assert result['pricing_details']['deal_price']['price'] == '9.99000000000000000000000001'
+
+
+def test_api_excludes_sensitive_parameters_from_original_fixture(payload):
+    with TestClient(create_app(httpx.MockTransport(lambda request: response_for(payload)))) as client:
+        response = client.get(PATH)
+    assert response.status_code == 200
+    assert 'headerBarMainPopup' not in response.json()
+    assert 'xsec_token' not in response.text.lower()
+    assert 'instation_link' not in response.text.lower()
+    assert 'trackersComponent' not in response.text
+    for service in response.json()['services']['popup_items']:
+        assert 'sign=' not in (service['icon'] or '')
