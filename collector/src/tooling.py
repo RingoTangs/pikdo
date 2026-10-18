@@ -1,4 +1,4 @@
-"""Collector-only checks and safe formatting; original examples are never scanned."""
+"""Collector-only checks and safe formatting, including example files."""
 
 import os
 import subprocess
@@ -10,7 +10,6 @@ import simplejson
 COLLECTOR_ROOT = Path(__file__).resolve().parents[1]
 RUFF_CONFIG = COLLECTOR_ROOT / "pyproject.toml"
 EXCLUDED_DIRS = {
-    "examples",
     "build",
     "dist",
     "node_modules",

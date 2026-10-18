@@ -45,7 +45,6 @@ def test_check_is_read_only_then_format_is_idempotent(tmp_path):
 @pytest.mark.parametrize(
     "directory",
     [
-        "examples",
         ".venv",
         ".cache",
         "build",
@@ -104,3 +103,34 @@ def test_tool_execution_failure_is_reported(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tooling.subprocess, "run", fail)
     assert tooling.run_tool("ruff", ["check"], tmp_path) is False
+
+
+def test_examples_are_checked_and_formatted_without_changing_data(tmp_path):
+    examples = tmp_path / "examples"
+    examples.mkdir()
+    python = examples / "sample.py"
+    python.write_text("def greet( name ):\n return 'hi '+name\n")
+    markdown = examples / "README.md"
+    markdown.write_text(
+        "# Title\n\n-   Item\n\n```text\nOriginal share text https://example.com/?xsec_token=sample\n```\n"
+    )
+    path = examples / "response.json"
+    path.write_text('{"price":9.9900000000000000000001,"xsec_token":"sample","items":[2,1]}')
+    original = snapshot(examples)
+    original_value = simplejson.loads(path.read_text(), use_decimal=True, object_pairs_hook=list)
+    files = tooling.discover_files(tmp_path)
+    assert files == {".py": [python], ".md": [markdown], ".json": [path]}
+    assert tooling.run_checks(check=True, root=tmp_path) == 1
+    assert snapshot(examples) == original
+    assert tooling.run_checks(check=False, root=tmp_path) == 0
+    assert snapshot(examples) != original
+    assert (
+        simplejson.loads(path.read_text(), use_decimal=True, object_pairs_hook=list)
+        == original_value
+    )
+    assert "9.9900000000000000000001" in path.read_text()
+    assert "xsec_token=sample" in markdown.read_text()
+    formatted = snapshot(examples)
+    assert tooling.run_checks(check=False, root=tmp_path) == 0
+    assert tooling.run_checks(check=True, root=tmp_path) == 0
+    assert snapshot(examples) == formatted

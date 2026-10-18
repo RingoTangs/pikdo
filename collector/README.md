@@ -231,7 +231,7 @@ URL 支持 HTTP(S)、图片的 `//` 前缀，以及客服字段的 `xhsdiscover`
 拒绝带用户名密码的 URL；保留 CDN 图片处理参数。
 移除签名可能导致需要签名的图片不可访问，API 不保证这些资源的可访问性。
 
-`examples/` 保存原始数据，只读使用，不对文件内容进行脱敏或其他修改。
+`examples/` 保存原始数据，允许 lint 检查和 format 排版，不得脱敏、删减或改变业务内容。
 解析器在内存中提取业务字段，脱敏仅作用于 API 输出，不修改输入或原始文件。
 测试读取原始样本；需要构造异常或敏感字段时，仅修改内存副本，并使用虚构值。
 
@@ -255,14 +255,14 @@ uv run format
 - `lint`：只读检查 Python 代码、import 顺序以及 Python、Markdown、JSON 格式；有问题时返回非零状态。
 - `format`：执行 Ruff 安全修复和格式化、Markdown 与 JSON 格式化；无法安全修复的问题仍需手动处理。不会启用 unsafe fixes。
 
-两条命令只扫描 Collector，强制跳过整个 `examples/`、隐藏目录（包含虚拟环境和缓存）、
+两条命令扫描 Collector（包含 `examples/`），强制跳过隐藏目录（包含虚拟环境和缓存）、
 `build/`、`dist/`、`node_modules/`、`__pycache__/`、`venv/`、`env/`，以及符号链接。
-根目录文档和 `docs/` 不在范围内；原始样本不会被修改。某类文件不存在时跳过。
+根目录文档和 `docs/` 不在范围内。某类文件不存在时跳过。
 
 Python 使用 Ruff，规则为 `E4/E7/E9/F/I`，目标 Python 3.13、100 列、四空格缩进和双引号。
 Markdown 使用 mdformat 与 GFM 插件，支持表格，保留段落换行，不格式化代码块。
 JSON 使用 simplejson 与 Decimal，四空格缩进、保留中文、键顺序和数组顺序、末尾换行；
 保留数字类型和精度，不排序键。无效 JSON、重复键或非有限数值会报错，不覆盖该文件。
-当前 JSON 样本均位于只读 `examples/`，因此会跳过；未来允许范围内的 JSON 会自动纳入。
+`examples/` 中的 Markdown 和 JSON 使用相同格式规则；只调整排版，不运行脱敏或字段过滤。
 
 推荐提交前依次执行 `uv run format`、`uv run lint`、`uv run test -v` 和 `uv build`。
