@@ -19,6 +19,8 @@ dependencies = [
 [project.scripts]
 dev = "app:main"
 test = "pytest:main"
+lint = "tooling:lint"
+format = "tooling:format"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -26,11 +28,30 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["app"]
+py-modules = ["app", "tooling"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff",
+    "mdformat>=1,<2",
+    "mdformat-gfm",
+    "simplejson>=3.19",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+force-exclude = true
+extend-exclude = ["examples", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

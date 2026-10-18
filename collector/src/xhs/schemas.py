@@ -4,8 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, PlainSerializer
 
-
-Money = Annotated[Decimal, PlainSerializer(lambda v: format(v, 'f'), return_type=str)]
+Money = Annotated[Decimal, PlainSerializer(lambda v: format(v, "f"), return_type=str)]
 
 
 class Model(BaseModel):
@@ -31,7 +30,7 @@ class Shop(Model):
 class Price(Model):
     current: Money | None = None
     display: Money | None = None
-    currency: str = 'CNY'
+    currency: str = "CNY"
 
 
 class Sales(Model):

@@ -22,23 +22,23 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 
 ## 返回字段
 
-| 字段 | 来源或处理 |
-| --- | --- |
-| `item_id` | 规范化后的请求 ID |
-| `title` | 优先 `descriptionMain.name`，回退 `descriptionH5.name` |
-| `sku_title` | `descriptionH5.name` |
-| `shop.id/name/sold_display` | `sellerH5.id/name/salesVolume` |
-| `shop.fans_count` | 优先 `profitBarPopupH5.follow.fansNum`，回退解析 `sellerH5.fansAmount` |
-| `price.current` | 依次选择有效的 `priceH5.dealPrice.price`、`bottomBarMainH5.dealPrice.price`、`priceH5.highlightPrice` |
-| `price.display` | `priceH5.highlightPrice`，无效或缺失时回退实际价格 |
-| `price.currency` | 默认 `CNY` |
-| `sales.display` | 原始 `priceH5.itemAnalysisDataText` |
-| `sales.estimated_count` | 累计销量解析值 |
-| `sales.exact` | 普通整数为 `true`；含 `万`、`w`、`W`、`+` 为 `false`；无法解析为 `null` |
-| `cover_url` | `carouselH5.images` 中首张有效图片 URL，`//` 开头补 `https:` |
-| `stock_status` | 原始 `carouselH5.stockStatus` 整数 |
-| `deliverable` | `bottomBarMainH5.deliveryInfo.ableToDelivery` 布尔值 |
-| `fetched_at` | Asia/Shanghai 时区，ISO 8601 格式，含 `+08:00` |
+| 字段                        | 来源或处理                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `item_id`                   | 规范化后的请求 ID                                                                                     |
+| `title`                     | 优先 `descriptionMain.name`，回退 `descriptionH5.name`                                                |
+| `sku_title`                 | `descriptionH5.name`                                                                                  |
+| `shop.id/name/sold_display` | `sellerH5.id/name/salesVolume`                                                                        |
+| `shop.fans_count`           | 优先 `profitBarPopupH5.follow.fansNum`，回退解析 `sellerH5.fansAmount`                                |
+| `price.current`             | 依次选择有效的 `priceH5.dealPrice.price`、`bottomBarMainH5.dealPrice.price`、`priceH5.highlightPrice` |
+| `price.display`             | `priceH5.highlightPrice`，无效或缺失时回退实际价格                                                    |
+| `price.currency`            | 默认 `CNY`                                                                                            |
+| `sales.display`             | 原始 `priceH5.itemAnalysisDataText`                                                                   |
+| `sales.estimated_count`     | 累计销量解析值                                                                                        |
+| `sales.exact`               | 普通整数为 `true`；含 `万`、`w`、`W`、`+` 为 `false`；无法解析为 `null`                               |
+| `cover_url`                 | `carouselH5.images` 中首张有效图片 URL，`//` 开头补 `https:`                                          |
+| `stock_status`              | 原始 `carouselH5.stockStatus` 整数                                                                    |
+| `deliverable`               | `bottomBarMainH5.deliveryInfo.ableToDelivery` 布尔值                                                  |
+| `fetched_at`                | Asia/Shanghai 时区，ISO 8601 格式，含 `+08:00`                                                        |
 
 金额使用 Decimal 处理并输出字符串，不转换单位不明的价格字段。
 仓库样例价格为 `"9.99"`，展示价格为 `"19.99"`；
@@ -57,17 +57,17 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 {"code":"INVALID_ITEM_ID","message":"商品 ID 必须为 24 位十六进制字符串","item_id":"invalid"}
 ```
 
-| HTTP 状态 | code | 含义 |
-| --- | --- | --- |
-| 422 | `INVALID_ITEM_ID` | 无效 ID，不请求上游 |
-| 504 | `UPSTREAM_TIMEOUT` | 上游请求超时 |
-| 503 | `UPSTREAM_ACCESS_RESTRICTED` | HTTP 401/403/429/461 或明确安全验证、登录消息 |
-| 502 | `UPSTREAM_HTTP_ERROR` | 其他非成功 HTTP 状态 |
-| 502 | `UPSTREAM_REQUEST_FAILED` | DNS、连接等传输失败 |
-| 502 | `UPSTREAM_INVALID_JSON` | 返回无效 JSON |
-| 502 | `UPSTREAM_INVALID_DATA` | 商品结构或标题缺失 |
-| 502 | `UPSTREAM_BUSINESS_ERROR` | 未知业务失败 |
-| 404 | `PRODUCT_UNAVAILABLE` | 明确不存在、下架、失效、违规状态或不可购买按钮 |
+| HTTP 状态 | code                         | 含义                                           |
+| --------- | ---------------------------- | ---------------------------------------------- |
+| 422       | `INVALID_ITEM_ID`            | 无效 ID，不请求上游                            |
+| 504       | `UPSTREAM_TIMEOUT`           | 上游请求超时                                   |
+| 503       | `UPSTREAM_ACCESS_RESTRICTED` | HTTP 401/403/429/461 或明确安全验证、登录消息  |
+| 502       | `UPSTREAM_HTTP_ERROR`        | 其他非成功 HTTP 状态                           |
+| 502       | `UPSTREAM_REQUEST_FAILED`    | DNS、连接等传输失败                            |
+| 502       | `UPSTREAM_INVALID_JSON`      | 返回无效 JSON                                  |
+| 502       | `UPSTREAM_INVALID_DATA`      | 商品结构或标题缺失                             |
+| 502       | `UPSTREAM_BUSINESS_ERROR`    | 未知业务失败                                   |
+| 404       | `PRODUCT_UNAVAILABLE`        | 明确不存在、下架、失效、违规状态或不可购买按钮 |
 
 上游 HTTP 404、请求失败和字段缺失不会被误判为下架。
 HTTPX 客户端在应用生命周期中复用并关闭；连接和连接池等待超时 5 秒，读写超时 10 秒。
@@ -143,35 +143,35 @@ Product
 
 所有数据块均位于 `data.template_data[0]`，以下路径省略此前缀：
 
-| 输出 | 来源 |
-| --- | --- |
-| `basic_info.product_item_id/sku_id` | `descriptionMain.itemId` / `descriptionH5.skuId` |
-| `basic_info.product_tags/sku_tags` | `descriptionMain.tags` / `descriptionH5.tags` |
-| `shop.logo/link/grade/seller_score/seller_score_text` | `sellerH5.logo/link/grade/sellerScore/sellerScoreText` |
-| `shop.fans_display/next_title` | `sellerH5.fansAmount/nextTitle` |
-| `shop.sold_estimated_count/sold_exact` | 解析 `sellerH5.salesVolume`，含万、w 或 + 均为近似值 |
-| `seller_account` | `profitBarPopupH5.follow.name/logo/fansNum/sellerUserId/sellerId` |
-| `pricing_details.highlight_price/price_integer_part/price_decimal_part` | `priceH5.highlightPrice/priceIntegerPart/priceDecimalPart` |
-| `pricing_details.deal_price` | `priceH5.dealPrice.price/type/priceText/isShowPricePop` |
-| `pricing_details.multiple_discount/tags` | `priceH5.multipleDiscount/tags` |
-| `pricing_details.bottom_price_raw/bottom_deal_price` | `bottomBarMainH5.price/dealPrice` |
-| `pricing_details.formula.result/steps` | `profitBarPopupH5.formula.result/step`，保留每项 name、price |
-| `media.images` | 完整 `carouselH5.images` |
-| `media.detail_description/detail_images` | `graphicDetailsV4.description/images` |
-| `variants.selected_sku_id/selected_text/specifications` | `selectedH5.skuId/text/specifications` |
-| `variants.title/parameters/sku_type` | `variantsParams.title/list`、`skuInfo.type` |
-| `variants.sku_num` | **信封层** `data.common_data` JSON 字符串中的 `statisticInfo.skuNum` |
-| `promotions.name/tags/profit_type/promotion_type/promotion_id/query_payment_marketing_info` | `profitBarV1` 对应字段 |
-| `promotions.title/activities` | `profitBarPopupH5.promotionV1.title/list` |
-| `promotions.activities[].contents` | 活动中的 `contents`，保留 tag、description、validateTime、giftGoods |
-| `shipping.location/fee/time` | `goodsDistributeV4.location/fee/time.text/mode/tag` |
-| `shipping.able_to_delivery/unable_to_delivery_text/button_text` | `bottomBarMainH5.deliveryInfo` 对应字段 |
-| `services.popup_items/summary_items` | `servicePopupV2.list` / `serviceV5.list` |
-| `purchase` | `bottomBarMainH5.buttons/showCustomerService/customerServiceName/customerServiceLink/isSingleVariant/couponInfos` |
-| `additional_info.price_description/faq` | `priceDescription.title/list`、`normalFaq.title/list` |
-| `additional_info.has_comments/has_followed/is_followed` | `headerBarMainV2.hasComments/hasFollowed/isFollowed` |
-| `metadata.template_version` | **信封层** `data.template_version` |
-| `metadata.sku_ids_consistent` | 比较 `descriptionH5/selectedH5/carouselH5/bottomBarMainH5.skuId`，不比较商品 itemId |
+| 输出                                                                                        | 来源                                                                                                              |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `basic_info.product_item_id/sku_id`                                                         | `descriptionMain.itemId` / `descriptionH5.skuId`                                                                  |
+| `basic_info.product_tags/sku_tags`                                                          | `descriptionMain.tags` / `descriptionH5.tags`                                                                     |
+| `shop.logo/link/grade/seller_score/seller_score_text`                                       | `sellerH5.logo/link/grade/sellerScore/sellerScoreText`                                                            |
+| `shop.fans_display/next_title`                                                              | `sellerH5.fansAmount/nextTitle`                                                                                   |
+| `shop.sold_estimated_count/sold_exact`                                                      | 解析 `sellerH5.salesVolume`，含万、w 或 + 均为近似值                                                              |
+| `seller_account`                                                                            | `profitBarPopupH5.follow.name/logo/fansNum/sellerUserId/sellerId`                                                 |
+| `pricing_details.highlight_price/price_integer_part/price_decimal_part`                     | `priceH5.highlightPrice/priceIntegerPart/priceDecimalPart`                                                        |
+| `pricing_details.deal_price`                                                                | `priceH5.dealPrice.price/type/priceText/isShowPricePop`                                                           |
+| `pricing_details.multiple_discount/tags`                                                    | `priceH5.multipleDiscount/tags`                                                                                   |
+| `pricing_details.bottom_price_raw/bottom_deal_price`                                        | `bottomBarMainH5.price/dealPrice`                                                                                 |
+| `pricing_details.formula.result/steps`                                                      | `profitBarPopupH5.formula.result/step`，保留每项 name、price                                                      |
+| `media.images`                                                                              | 完整 `carouselH5.images`                                                                                          |
+| `media.detail_description/detail_images`                                                    | `graphicDetailsV4.description/images`                                                                             |
+| `variants.selected_sku_id/selected_text/specifications`                                     | `selectedH5.skuId/text/specifications`                                                                            |
+| `variants.title/parameters/sku_type`                                                        | `variantsParams.title/list`、`skuInfo.type`                                                                       |
+| `variants.sku_num`                                                                          | **信封层** `data.common_data` JSON 字符串中的 `statisticInfo.skuNum`                                              |
+| `promotions.name/tags/profit_type/promotion_type/promotion_id/query_payment_marketing_info` | `profitBarV1` 对应字段                                                                                            |
+| `promotions.title/activities`                                                               | `profitBarPopupH5.promotionV1.title/list`                                                                         |
+| `promotions.activities[].contents`                                                          | 活动中的 `contents`，保留 tag、description、validateTime、giftGoods                                               |
+| `shipping.location/fee/time`                                                                | `goodsDistributeV4.location/fee/time.text/mode/tag`                                                               |
+| `shipping.able_to_delivery/unable_to_delivery_text/button_text`                             | `bottomBarMainH5.deliveryInfo` 对应字段                                                                           |
+| `services.popup_items/summary_items`                                                        | `servicePopupV2.list` / `serviceV5.list`                                                                          |
+| `purchase`                                                                                  | `bottomBarMainH5.buttons/showCustomerService/customerServiceName/customerServiceLink/isSingleVariant/couponInfos` |
+| `additional_info.price_description/faq`                                                     | `priceDescription.title/list`、`normalFaq.title/list`                                                             |
+| `additional_info.has_comments/has_followed/is_followed`                                     | `headerBarMainV2.hasComments/hasFollowed/isFollowed`                                                              |
+| `metadata.template_version`                                                                 | **信封层** `data.template_version`                                                                                |
+| `metadata.sku_ids_consistent`                                                               | 比较 `descriptionH5/selectedH5/carouselH5/bottomBarMainH5.skuId`，不比较商品 itemId                               |
 
 评分保持原始字符串 `"4.0"`、`"4.20"`；金额使用 Decimal 并输出字符串，公式保留上游步骤名称。
 `highlight_price` 不解释为原价。`bottom_price_raw=999` 的单位未知，仅保留整数，不参与价格计算；
@@ -186,37 +186,37 @@ Product
 
 真实样例共有 **29** 个顶层块，**18** 个非空，**11** 个为空占位（false 等明确布尔值视为有信息）。
 
-| 数据块 | 样例状态 | 处理 |
-| --- | --- | --- |
-| sellerH5 | 非空 | 店铺身份、评分、粉丝和销量 |
-| descriptionH5 | 非空 | SKU 标题、ID、标签 |
-| bottomBarMainH5 | 非空 | 价格、配送、按钮及客服；跳过埋点和空占位 |
-| priceH5 | 非空 | 完整价格、销量、优惠与标签 |
-| servicePopupV2 | 非空 | 服务保障详情 |
-| carouselH5 | 非空 | 六张主图和库存；空视频及营销图片暂不建模 |
-| selectedH5 | 非空 | 已选规格、SKU ID、specifications |
-| profitBarV1 | 非空 | 促销摘要和标签 |
-| graphicDetailsV4 | 非空 | 九张详情图片及说明；不重复保存店铺 ID |
-| headerBarMainPopup | 非空 | 不提取，主要为分享、导航和追踪链接 |
-| descriptionMain | 非空 | 商品标题、商品 ID、标签 |
-| priceDescription | 非空 | 价格说明 |
-| profitBarPopupH5 | 非空 | 公式、促销活动、关联账号 |
-| serviceV5 | 非空 | 服务摘要，并参与合并展示 |
-| goodsDistributeV4 | 非空 | 发货地、费用和时效 |
-| headerBarMainV2 | 非空 | 评论与关注状态；跳过搜索、占位、更多按钮等 UI 设置 |
-| variantsParams | 非空 | 规格参数 |
-| skuInfo | 非空 | SKU 类型 |
-| installmentPopupV1 | 空占位 | 暂不建模分期组件 |
-| descriptionExtraInfoV1 | 空占位 | 暂不建模 |
-| depositSteps | 空占位 | 暂不建模预售步骤 |
-| priceWarmUp | 空占位 | 暂不建模预热价格 |
-| fissionCoupon | 空占位 | 暂不建模裂变优惠券 |
-| campaignBanner | 空占位 | 暂不建模活动横幅 |
-| consumeWarning | 空占位 | 暂不建模消费提示 |
-| installmentV1 | 空占位 | 暂不建模分期摘要 |
-| displayO2OShop | 空占位 | 暂不建模线下店铺 |
-| normalFaq | 空占位 | 已定义 FAQ 模型，为后续返回保留空数组 |
-| goodsDistributePopupV4 | 空占位 | 暂不建模物流弹窗 |
+| 数据块                 | 样例状态 | 处理                                               |
+| ---------------------- | -------- | -------------------------------------------------- |
+| sellerH5               | 非空     | 店铺身份、评分、粉丝和销量                         |
+| descriptionH5          | 非空     | SKU 标题、ID、标签                                 |
+| bottomBarMainH5        | 非空     | 价格、配送、按钮及客服；跳过埋点和空占位           |
+| priceH5                | 非空     | 完整价格、销量、优惠与标签                         |
+| servicePopupV2         | 非空     | 服务保障详情                                       |
+| carouselH5             | 非空     | 六张主图和库存；空视频及营销图片暂不建模           |
+| selectedH5             | 非空     | 已选规格、SKU ID、specifications                   |
+| profitBarV1            | 非空     | 促销摘要和标签                                     |
+| graphicDetailsV4       | 非空     | 九张详情图片及说明；不重复保存店铺 ID              |
+| headerBarMainPopup     | 非空     | 不提取，主要为分享、导航和追踪链接                 |
+| descriptionMain        | 非空     | 商品标题、商品 ID、标签                            |
+| priceDescription       | 非空     | 价格说明                                           |
+| profitBarPopupH5       | 非空     | 公式、促销活动、关联账号                           |
+| serviceV5              | 非空     | 服务摘要，并参与合并展示                           |
+| goodsDistributeV4      | 非空     | 发货地、费用和时效                                 |
+| headerBarMainV2        | 非空     | 评论与关注状态；跳过搜索、占位、更多按钮等 UI 设置 |
+| variantsParams         | 非空     | 规格参数                                           |
+| skuInfo                | 非空     | SKU 类型                                           |
+| installmentPopupV1     | 空占位   | 暂不建模分期组件                                   |
+| descriptionExtraInfoV1 | 空占位   | 暂不建模                                           |
+| depositSteps           | 空占位   | 暂不建模预售步骤                                   |
+| priceWarmUp            | 空占位   | 暂不建模预热价格                                   |
+| fissionCoupon          | 空占位   | 暂不建模裂变优惠券                                 |
+| campaignBanner         | 空占位   | 暂不建模活动横幅                                   |
+| consumeWarning         | 空占位   | 暂不建模消费提示                                   |
+| installmentV1          | 空占位   | 暂不建模分期摘要                                   |
+| displayO2OShop         | 空占位   | 暂不建模线下店铺                                   |
+| normalFaq              | 空占位   | 已定义 FAQ 模型，为后续返回保留空数组              |
+| goodsDistributePopupV4 | 空占位   | 暂不建模物流弹窗                                   |
 
 ### 类型与安全
 
@@ -241,3 +241,28 @@ URL 支持 HTTP(S)、图片的 `//` 前缀，以及客服字段的 `xhsdiscover`
 保留字符串金额和销量精确性标记，不用累计值替代日销量。
 如确需原始归档，应放在内部存储层，按租户隔离、限制访问、加密和脱敏，并设置保留期限与清理机制，
 不要通过公开商品 API 直接返回原始响应。
+
+## 代码检查与格式化
+
+在 `collector` 目录执行：
+
+```bash
+uv sync
+uv run lint
+uv run format
+```
+
+- `lint`：只读检查 Python 代码、import 顺序以及 Python、Markdown、JSON 格式；有问题时返回非零状态。
+- `format`：执行 Ruff 安全修复和格式化、Markdown 与 JSON 格式化；无法安全修复的问题仍需手动处理。不会启用 unsafe fixes。
+
+两条命令只扫描 Collector，强制跳过整个 `examples/`、隐藏目录（包含虚拟环境和缓存）、
+`build/`、`dist/`、`node_modules/`、`__pycache__/`、`venv/`、`env/`，以及符号链接。
+根目录文档和 `docs/` 不在范围内；原始样本不会被修改。某类文件不存在时跳过。
+
+Python 使用 Ruff，规则为 `E4/E7/E9/F/I`，目标 Python 3.13、100 列、四空格缩进和双引号。
+Markdown 使用 mdformat 与 GFM 插件，支持表格，保留段落换行，不格式化代码块。
+JSON 使用 simplejson 与 Decimal，四空格缩进、保留中文、键顺序和数组顺序、末尾换行；
+保留数字类型和精度，不排序键。无效 JSON、重复键或非有限数值会报错，不覆盖该文件。
+当前 JSON 样本均位于只读 `examples/`，因此会跳过；未来允许范围内的 JSON 会自动纳入。
+
+推荐提交前依次执行 `uv run format`、`uv run lint`、`uv run test -v` 和 `uv build`。

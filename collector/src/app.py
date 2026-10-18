@@ -15,7 +15,9 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         timeout = httpx.Timeout(connect=5, read=10, write=10, pool=5)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, transport=transport) as http:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=False, transport=transport
+        ) as http:
             application.state.xhs = XhsClient(http)
             logging.getLogger("uvicorn.error").info("接口文档：http://localhost:8000/docs")
             yield
@@ -33,7 +35,8 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @application.get(
-        "/api/v1/xhs/products/{item_id}", response_model=Product,
+        "/api/v1/xhs/products/{item_id}",
+        response_model=Product,
         responses={status: {"model": ErrorResponse} for status in (404, 422, 502, 503, 504)},
     )
     async def product(item_id: str, request: Request) -> Product:
