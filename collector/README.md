@@ -10,7 +10,7 @@ uv sync
 uv run dev
 ```
 
-监听 `127.0.0.1:8000`。服务入口 <http://localhost:8000/> 自动跳转至文档。交互文档：<http://localhost:8000/docs>。
+监听 `127.0.0.1:8000`。交互文档：<http://localhost:8000/docs>。
 
 ```bash
 curl http://localhost:8000/health

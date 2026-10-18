@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 
 from xhs.client import XhsClient
 from xhs.errors import CollectionError
@@ -21,10 +21,6 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
             yield
 
     application = FastAPI(title="Pikdo Collector", lifespan=lifespan)
-
-    @application.get("/", include_in_schema=False)
-    async def root() -> RedirectResponse:
-        return RedirectResponse(url="/docs", status_code=307)
 
     @application.exception_handler(CollectionError)
     async def handle_collection_error(request: Request, exc: CollectionError):

@@ -113,15 +113,3 @@ def test_missing_sales_remains_null(payload):
     with TestClient(create_app(httpx.MockTransport(lambda request: response_for(payload)))) as client:
         result = client.get(PATH).json()
     assert result['sales'] == {'display': None, 'estimated_count': None, 'exact': None}
-
-
-def test_root_redirects_to_docs():
-    def handler(request):
-        pytest.fail('Root and docs must not reach upstream')
-
-    with TestClient(create_app(httpx.MockTransport(handler))) as client:
-        response = client.get('/', follow_redirects=False)
-        assert response.status_code == 307
-        assert response.headers['location'] == '/docs'
-        assert client.get('/').status_code == 200
-        assert '/' not in client.get('/openapi.json').json()['paths']
