@@ -1,0 +1,1 @@
+"""Xiaohongshu product collection."""
