@@ -6,7 +6,7 @@
 uv run dev
 ```
 
-入口为 `src/main.py` 中的 `main()`，通过 `pyproject.toml` 的 `[project.scripts]` 配置。
+入口为 `src/app.py` 中的 `main()`，通过 `pyproject.toml` 的 `[project.scripts]` 配置。
 
 源码直接放在 `src` 下。以后可以添加 `src/utils/__init__.py` 和
 `src/utils/text.py`，并使用 `from utils.text import ...` 导入。

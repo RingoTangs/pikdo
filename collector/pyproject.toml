@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dev = "main:main"
+dev = "app:main"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -24,7 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["main"]
+py-modules = ["app"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
