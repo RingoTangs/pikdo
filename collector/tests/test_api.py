@@ -113,3 +113,55 @@ def test_missing_sales_remains_null(payload):
     with TestClient(create_app(httpx.MockTransport(lambda request: response_for(payload)))) as client:
         result = client.get(PATH).json()
     assert result['sales'] == {'display': None, 'estimated_count': None, 'exact': None}
+
+
+def test_v02_api_serialization(payload):
+    with TestClient(create_app(httpx.MockTransport(lambda request: response_for(payload)))) as client:
+        response = client.get(PATH)
+        assert client.get('/openapi.json').json()['info']['version'] == '0.2.0'
+    assert response.status_code == 200
+    result = response.json()
+    assert result['price'] == {'current': '9.99', 'display': '19.99', 'currency': 'CNY'}
+    assert result['shop']['grade'] == '4.0'
+    assert result['shop']['seller_score'] == '4.20'
+    assert result['shop']['sold_exact'] is False
+    assert result['pricing_details']['bottom_price_raw'] == 999
+    assert result['pricing_details']['formula']['steps'][0]['price'] == '19.99'
+    assert len(result['media']['images']) == 6
+    assert len(result['media']['detail_images']) == 9
+    assert result['shipping']['location'] == '广东潮州'
+    assert result['shipping']['fee'] == '包邮'
+    assert result['variants']['sku_num'] == 6
+    assert len(result['services']['items']) == 3
+    assert len(result['purchase']['buttons']) == 2
+    assert result['metadata']['template_version'] == '75'
+    assert 'template' not in result and 'template_data' not in result
+
+
+def test_v02_api_filters_sensitive_business_json(payload):
+    data = payload['data']['template_data'][0]
+    data['descriptionMain']['tags'] = [
+        {'name': 'business', 'xsec_token': 'SECRET_TOKEN', 'trackers': {'event': 'SECRET_EVENT'},
+         'url': '//example.com/image?imageView2/2/w/1080&xsec_token=SECRET_TOKEN&sign=SECRET_SIGN&ap=3'},
+        '{"name":"nested","authorization":"SECRET_AUTH"}',
+    ]
+    data['bottomBarMainH5']['couponInfos'] = [{'name': 'coupon', 'cookie': 'SECRET_COOKIE'}]
+    data['carouselH5']['images'][0]['media'] = {'url': 'https://example.com/a?utm_source=SECRET_TRACE', 'tracking': 'SECRET_EVENT'}
+    data['sellerH5']['link'] = 'https://example.com/shop?xsec_token=SECRET_TOKEN'
+    with TestClient(create_app(httpx.MockTransport(lambda request: response_for(payload)))) as client:
+        response = client.get(PATH)
+    assert response.status_code == 200
+    assert 'SECRET_' not in response.text
+    result = response.json()
+    assert result['basic_info']['product_tags'][0] == {'name': 'business', 'url': 'https://example.com/image?imageView2/2/w/1080&ap=3'}
+    assert result['basic_info']['product_tags'][1] == {'name': 'nested'}
+    assert result['purchase']['coupon_infos'] == [{'name': 'coupon'}]
+
+
+def test_v02_numeric_json_precision():
+    body = ('{"success":true,"data":{"template_data":[{"descriptionMain":{"name":"Test"},'
+            '"priceH5":{"dealPrice":{"price":9.99000000000000000000000001}}}]}}')
+    with TestClient(create_app(httpx.MockTransport(lambda request: httpx.Response(200, content=body)))) as client:
+        result = client.get(PATH).json()
+    assert result['price']['current'] == '9.99000000000000000000000001'
+    assert result['pricing_details']['deal_price']['price'] == '9.99000000000000000000000001'

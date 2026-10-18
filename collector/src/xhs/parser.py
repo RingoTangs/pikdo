@@ -1,33 +1,20 @@
 import re
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from xhs.errors import CollectionError
 from xhs.schemas import Price, Product, Sales, Shop
+from xhs.domains import (
+    parse_account, parse_additional, parse_basic, parse_media, parse_metadata,
+    parse_pricing, parse_promotions, parse_purchase, parse_services, parse_shipping, parse_variants,
+)
+from xhs.values import amount, obj, safe_url, text
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 UNAVAILABLE = ("已下架，进店逛逛", "当前商品已下架", "商品已下架", "商品不存在", "商品已失效", "当前商品违规，无法展示", "item freeze")
 RESTRICTED = ("安全验证", "安全校验", "访问受限", "访问频繁", "请求频繁", "验证码", "登录后", "请登录")
-
-
-def obj(value: object) -> dict:
-    return value if isinstance(value, dict) else {}
-
-
-def text(value: object) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
-
-
-def amount(value: object) -> Decimal | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
-        return None
-    try:
-        number = Decimal(str(value))
-        return number if number.is_finite() and number >= 0 else None
-    except InvalidOperation:
-        return None
 
 
 def parse_count(value: object, prefix: str = "已售") -> tuple[int | None, bool | None]:
@@ -83,18 +70,26 @@ def parse_product(payload: object, item_id: str) -> Product:
     if type(fans) is not int or fans < 0:
         fans, _ = parse_count(seller.get("fansAmount"), "粉丝数")
     carousel = obj(data.get("carouselH5"))
-    images = carousel.get("images")
-    cover = text(obj(images[0]).get("url")) if isinstance(images, list) and images else None
-    if cover and cover.startswith("//"):
-        cover = "https:" + cover
+    media = parse_media(data)
+    cover = next((image.url for image in media.images if image.url), None)
+    shop_count, shop_exact = parse_count(seller.get("salesVolume"))
     stock = carousel.get("stockStatus")
     deliverable = obj(bottom.get("deliveryInfo")).get("ableToDelivery")
     return Product(
         item_id=item_id, title=title, sku_title=text(description.get("name")),
-        shop=Shop(id=text(seller.get("id")), name=text(seller.get("name")), fans_count=fans, sold_display=text(seller.get("salesVolume"))),
+        shop=Shop(id=text(seller.get("id")), name=text(seller.get("name")), fans_count=fans, sold_display=text(seller.get("salesVolume")),
+                  logo=safe_url(seller.get("logo")), link=safe_url(seller.get("link")), grade=text(seller.get("grade")),
+                  seller_score=text(seller.get("sellerScore")), seller_score_text=text(seller.get("sellerScoreText")),
+                  fans_display=text(seller.get("fansAmount")), next_title=text(seller.get("nextTitle")),
+                  sold_estimated_count=shop_count, sold_exact=shop_exact),
         price=Price(current=current, display=display if display is not None else current),
         sales=Sales(display=sales_display, estimated_count=count, exact=exact),
         cover_url=cover, stock_status=stock if type(stock) is int else None,
         deliverable=deliverable if type(deliverable) is bool else None,
         fetched_at=datetime.now(SHANGHAI),
+        basic_info=parse_basic(data), seller_account=parse_account(data), pricing_details=parse_pricing(data),
+        media=media, variants=parse_variants(data, obj(payload.get("data")).get("common_data")),
+        promotions=parse_promotions(data), shipping=parse_shipping(data), services=parse_services(data),
+        purchase=parse_purchase(data), additional_info=parse_additional(data),
+        metadata=parse_metadata(data, obj(payload.get("data"))),
     )

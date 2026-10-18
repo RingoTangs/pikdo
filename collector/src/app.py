@@ -20,7 +20,7 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
             logging.getLogger("uvicorn.error").info("接口文档：http://localhost:8000/docs")
             yield
 
-    application = FastAPI(title="Pikdo Collector", lifespan=lifespan)
+    application = FastAPI(title="Pikdo Collector", version="0.2.0", lifespan=lifespan)
 
     @application.exception_handler(CollectionError)
     async def handle_collection_error(request: Request, exc: CollectionError):

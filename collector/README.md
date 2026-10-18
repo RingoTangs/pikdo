@@ -1,4 +1,4 @@
-# Pikdo Collector
+# Pikdo Collector v0.2
 
 小红书商品详情采集 API，使用 Python 3.13、uv、FastAPI 和 HTTPX。
 
@@ -35,7 +35,7 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 | `sales.display` | 原始 `priceH5.itemAnalysisDataText` |
 | `sales.estimated_count` | 累计销量解析值 |
 | `sales.exact` | 普通整数为 `true`；含 `万`、`w`、`W`、`+` 为 `false`；无法解析为 `null` |
-| `cover_url` | `carouselH5.images[0].url`，`//` 开头补 `https:` |
+| `cover_url` | `carouselH5.images` 中首张有效图片 URL，`//` 开头补 `https:` |
 | `stock_status` | 原始 `carouselH5.stockStatus` 整数 |
 | `deliverable` | `bottomBarMainH5.deliveryInfo.ableToDelivery` 布尔值 |
 | `fetched_at` | Asia/Shanghai 时区，ISO 8601 格式，含 `+08:00` |
@@ -97,3 +97,146 @@ uv build
 - [examples/README.md](examples/README.md)：分享原文、接口地址和完整 JSON 样例。
 
 新增含 `__init__.py` 的包自动发现；新增独立顶层模块需加入 `py-modules`。
+
+## v0.2 扩展结构
+
+旧字段、请求路径和错误结构继续保留。新增对象均包含固定字段；可选标量为 `null`，列表为 `[]`。
+以下为结构摘要（字段内容请以 `/docs` 中的模型为准）：
+
+```text
+Product
+├── item_id, title, sku_title, cover_url, stock_status, deliverable, fetched_at
+├── price {current, display, currency}               # 保持 v0.1 结构
+├── sales {display, estimated_count, exact}         # 保持 v0.1 结构
+├── basic_info {product_item_id, sku_id, product_tags[], sku_tags[]}
+├── shop {id, name, fans_count, sold_display, logo, link, grade,
+│         seller_score, seller_score_text, fans_display, next_title,
+│         sold_estimated_count, sold_exact}
+├── seller_account {name, logo, fans_num, seller_user_id, seller_id}
+├── pricing_details {highlight_price, price_integer_part, price_decimal_part,
+│   deal_price {price, type, price_text, is_show_price_pop},
+│   bottom_price_raw, bottom_deal_price, multiple_discount[], tags[],
+│   formula {result {name, price}, steps[{name, price}]}}
+├── media {images[], detail_description, detail_images[]}
+├── variants {selected_sku_id, selected_text, specifications[], title,
+│             parameters[{name, value}], sku_type, sku_num}
+├── promotions {name, tags[], profit_type, promotion_type, promotion_id,
+│   query_payment_marketing_info, title, activities[{promotion_id,
+│   promotion_type, promotion_name, name, title, validate_time,
+│   contents[{tag, description, validate_time, gift_goods[]}]}]}
+├── shipping {location, fee, time {text, mode, tag}, able_to_delivery,
+│             unable_to_delivery_text, button_text}
+├── services {popup_items[], summary_items[], items[]}
+├── purchase {buttons[], show_customer_service, customer_service_name,
+│             customer_service_link, is_single_variant, coupon_infos[]}
+├── additional_info {price_description {title, items[{name, value}]},
+│   faq {title, items[{name, value}]}, has_comments, has_followed, is_followed}
+└── metadata {template_version, sku_ids_consistent}
+```
+
+图片条目保留 `url/thumbnail/width/height/cover/video_id/media/type`，保留数组顺序；无 URL 的图片对象仍保留，封面选首张有效主图。
+购买按钮保留 `type/text/sub_text/action_type/style_type`。
+服务详情保留 `title/description/icon/type`，服务摘要保留 `name/icon/type`；
+`services.items` 按去除首尾空格的标题合并，详情优先、摘要补充，保留两份来源列表，样例最终展示三项服务。
+
+### 新增字段来源
+
+所有数据块均位于 `data.template_data[0]`，以下路径省略此前缀：
+
+| 输出 | 来源 |
+| --- | --- |
+| `basic_info.product_item_id/sku_id` | `descriptionMain.itemId` / `descriptionH5.skuId` |
+| `basic_info.product_tags/sku_tags` | `descriptionMain.tags` / `descriptionH5.tags` |
+| `shop.logo/link/grade/seller_score/seller_score_text` | `sellerH5.logo/link/grade/sellerScore/sellerScoreText` |
+| `shop.fans_display/next_title` | `sellerH5.fansAmount/nextTitle` |
+| `shop.sold_estimated_count/sold_exact` | 解析 `sellerH5.salesVolume`，含万、w 或 + 均为近似值 |
+| `seller_account` | `profitBarPopupH5.follow.name/logo/fansNum/sellerUserId/sellerId` |
+| `pricing_details.highlight_price/price_integer_part/price_decimal_part` | `priceH5.highlightPrice/priceIntegerPart/priceDecimalPart` |
+| `pricing_details.deal_price` | `priceH5.dealPrice.price/type/priceText/isShowPricePop` |
+| `pricing_details.multiple_discount/tags` | `priceH5.multipleDiscount/tags` |
+| `pricing_details.bottom_price_raw/bottom_deal_price` | `bottomBarMainH5.price/dealPrice` |
+| `pricing_details.formula.result/steps` | `profitBarPopupH5.formula.result/step`，保留每项 name、price |
+| `media.images` | 完整 `carouselH5.images` |
+| `media.detail_description/detail_images` | `graphicDetailsV4.description/images` |
+| `variants.selected_sku_id/selected_text/specifications` | `selectedH5.skuId/text/specifications` |
+| `variants.title/parameters/sku_type` | `variantsParams.title/list`、`skuInfo.type` |
+| `variants.sku_num` | **信封层** `data.common_data` JSON 字符串中的 `statisticInfo.skuNum` |
+| `promotions.name/tags/profit_type/promotion_type/promotion_id/query_payment_marketing_info` | `profitBarV1` 对应字段 |
+| `promotions.title/activities` | `profitBarPopupH5.promotionV1.title/list` |
+| `promotions.activities[].contents` | 活动中的 `contents`，保留 tag、description、validateTime、giftGoods |
+| `shipping.location/fee/time` | `goodsDistributeV4.location/fee/time.text/mode/tag` |
+| `shipping.able_to_delivery/unable_to_delivery_text/button_text` | `bottomBarMainH5.deliveryInfo` 对应字段 |
+| `services.popup_items/summary_items` | `servicePopupV2.list` / `serviceV5.list` |
+| `purchase` | `bottomBarMainH5.buttons/showCustomerService/customerServiceName/customerServiceLink/isSingleVariant/couponInfos` |
+| `additional_info.price_description/faq` | `priceDescription.title/list`、`normalFaq.title/list` |
+| `additional_info.has_comments/has_followed/is_followed` | `headerBarMainV2.hasComments/hasFollowed/isFollowed` |
+| `metadata.template_version` | **信封层** `data.template_version` |
+| `metadata.sku_ids_consistent` | 比较 `descriptionH5/selectedH5/carouselH5/bottomBarMainH5.skuId`，不比较商品 itemId |
+
+评分保持原始字符串 `"4.0"`、`"4.20"`；金额使用 Decimal 并输出字符串，公式保留上游步骤名称。
+`highlight_price` 不解释为原价。`bottom_price_raw=999` 的单位未知，仅保留整数，不参与价格计算；
+该原始字段若是非整数数值，使用十进制字符串输出。零金额有效，非有限或负金额视为无效可选值。
+
+商品 ID 和 SKU ID 不要求相同、不会相互覆盖；已知 SKU 来源不一致时标记 `sku_ids_consistent=false`，不拒绝查询，
+不足两个 SKU 来源时为 `null`。关联账号身份与店铺身份独立保留，不强行合并。
+`common_data` 解析失败或 skuNum 类型错误时 `sku_num=null`，不影响整个商品；不据此生成 SKU 列表。
+有效期只保留原始文案，不臆测时区和精确时间。
+
+### 数据块覆盖统计
+
+真实样例共有 **29** 个顶层块，**18** 个非空，**11** 个为空占位（false 等明确布尔值视为有信息）。
+
+| 数据块 | 样例状态 | 处理 |
+| --- | --- | --- |
+| sellerH5 | 非空 | 店铺身份、评分、粉丝和销量 |
+| descriptionH5 | 非空 | SKU 标题、ID、标签 |
+| bottomBarMainH5 | 非空 | 价格、配送、按钮及客服；跳过埋点和空占位 |
+| priceH5 | 非空 | 完整价格、销量、优惠与标签 |
+| servicePopupV2 | 非空 | 服务保障详情 |
+| carouselH5 | 非空 | 六张主图和库存；空视频及营销图片暂不建模 |
+| selectedH5 | 非空 | 已选规格、SKU ID、specifications |
+| profitBarV1 | 非空 | 促销摘要和标签 |
+| graphicDetailsV4 | 非空 | 九张详情图片及说明；不重复保存店铺 ID |
+| headerBarMainPopup | 非空 | 不提取，主要为分享、导航和追踪链接 |
+| descriptionMain | 非空 | 商品标题、商品 ID、标签 |
+| priceDescription | 非空 | 价格说明 |
+| profitBarPopupH5 | 非空 | 公式、促销活动、关联账号 |
+| serviceV5 | 非空 | 服务摘要，并参与合并展示 |
+| goodsDistributeV4 | 非空 | 发货地、费用和时效 |
+| headerBarMainV2 | 非空 | 评论与关注状态；跳过搜索、占位、更多按钮等 UI 设置 |
+| variantsParams | 非空 | 规格参数 |
+| skuInfo | 非空 | SKU 类型 |
+| installmentPopupV1 | 空占位 | 暂不建模分期组件 |
+| descriptionExtraInfoV1 | 空占位 | 暂不建模 |
+| depositSteps | 空占位 | 暂不建模预售步骤 |
+| priceWarmUp | 空占位 | 暂不建模预热价格 |
+| fissionCoupon | 空占位 | 暂不建模裂变优惠券 |
+| campaignBanner | 空占位 | 暂不建模活动横幅 |
+| consumeWarning | 空占位 | 暂不建模消费提示 |
+| installmentV1 | 空占位 | 暂不建模分期摘要 |
+| displayO2OShop | 空占位 | 暂不建模线下店铺 |
+| normalFaq | 空占位 | 已定义 FAQ 模型，为后续返回保留空数组 |
+| goodsDistributePopupV4 | 空占位 | 暂不建模物流弹窗 |
+
+### 类型与安全
+
+可选数字、布尔值、字符串严格检查，不把 `true` 当整数或 `"false"` 当布尔值；错误类型降为 `null` 或空数组。
+列表中非对象项在要求对象的列表内跳过，其余对象保留顺序与部分缺失字段。
+模型采用白名单，不公开原始响应或内部模板。
+
+样例尚无条目结构的业务数组（tags、specifications、multipleDiscount、couponInfos、giftGoods）及图片 media/cover
+使用经递归过滤的 JSON 值，不编造不存在的 SKU、优惠券和媒体结构；其中 Decimal 数值使用字符串。
+JSON 字符串若可解析则过滤为 JSON 值；不透传敏感字段、追踪和布局配置。
+URL 支持 HTTP(S)、图片的 `//` 前缀，以及客服字段的 `xhsdiscover` 链接；移除令牌、签名、追踪参数及 fragment，
+拒绝带用户名密码的 URL；保留 CDN 图片处理参数。
+移除签名可能导致需要签名的图片不可访问，API 不保证这些资源的可访问性。
+
+`examples/response.json` 保留真实业务结构和全部 29 个组件，已移除分享令牌、签名参数及追踪配置；
+它是脱敏样本，不是完整原始归档。测试注入虚构敏感值验证过滤，不使用真实凭证。
+
+### 后续持久化建议
+
+本次不增加存储。后续可分别保存规范化商品快照、采集时间、接口模板版本及解析器版本；
+保留字符串金额和销量精确性标记，不用累计值替代日销量。
+如确需原始归档，应放在内部存储层，按租户隔离、限制访问、加密和脱敏，并设置保留期限与清理机制，
+不要通过公开商品 API 直接返回原始响应。
