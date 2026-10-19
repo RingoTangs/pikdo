@@ -16,7 +16,7 @@ from xhs.domains import (
     parse_shipping,
     parse_variants,
 )
-from xhs.errors import CollectionError
+from xhs.errors import ProductDataError
 from xhs.schemas import Price, Product, Sales, Shop
 from xhs.values import amount, obj, safe_url, text
 
@@ -62,18 +62,18 @@ def business_error(messages: list[str], buttons: list) -> None:
     if any(any(marker in message.lower() for marker in UNAVAILABLE) for message in messages) or any(
         obj(button).get("type") == "unBuyableGoShop" for button in buttons
     ):
-        raise CollectionError("PRODUCT_UNAVAILABLE", "商品不存在、已下架或已失效", 404)
+        raise ProductDataError("PRODUCT_UNAVAILABLE", "商品不存在、已下架或已失效")
     if any(any(marker in message for marker in RESTRICTED) for message in messages):
-        raise CollectionError("UPSTREAM_ACCESS_RESTRICTED", "上游访问受限", 503)
+        raise ProductDataError("UPSTREAM_ACCESS_RESTRICTED", "上游访问受限")
 
 
 def parse_product(payload: object, item_id: str) -> Product:
     if not isinstance(payload, dict):
-        raise CollectionError("UPSTREAM_INVALID_DATA", "上游响应不是有效对象")
+        raise ProductDataError("UPSTREAM_INVALID_DATA", "上游响应不是有效对象")
     messages = [value for key in ("msg", "message") if (value := text(payload.get(key)))]
     business_error(messages, [])
     if payload.get("success") is not True:
-        raise CollectionError("UPSTREAM_BUSINESS_ERROR", "上游未返回成功状态")
+        raise ProductDataError("UPSTREAM_BUSINESS_ERROR", "上游未返回成功状态")
     templates = obj(payload.get("data")).get("template_data")
     if (
         not isinstance(templates, list)
@@ -81,7 +81,7 @@ def parse_product(payload: object, item_id: str) -> Product:
         or not isinstance(templates[0], dict)
         or not templates[0]
     ):
-        raise CollectionError("UPSTREAM_INVALID_DATA", "上游缺少商品详情对象")
+        raise ProductDataError("UPSTREAM_INVALID_DATA", "上游缺少商品详情对象")
     data = templates[0]
     bottom = obj(data.get("bottomBarMainH5"))
     buttons = bottom.get("buttons")
@@ -93,7 +93,7 @@ def parse_product(payload: object, item_id: str) -> Product:
     description = obj(data.get("descriptionH5"))
     title = text(obj(data.get("descriptionMain")).get("name")) or text(description.get("name"))
     if title is None:
-        raise CollectionError("UPSTREAM_INVALID_DATA", "上游缺少商品标题")
+        raise ProductDataError("UPSTREAM_INVALID_DATA", "上游缺少商品标题")
     seller = obj(data.get("sellerH5"))
     price = obj(data.get("priceH5"))
     candidates = [

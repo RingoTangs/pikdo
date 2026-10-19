@@ -20,9 +20,8 @@ from playwright.async_api import (
 )
 from playwright.async_api import Error as PlaywrightError
 
-from xhs.errors import CollectionError, ResolveError
-from xhs.product_decoder import decode_product_body
-from xhs.resolver import (
+from xhs.errors import InputError, ProductDataError
+from xhs.input_parser import (
     H5_HOSTS,
     ITEM_ID,
     URL_PATTERN,
@@ -32,6 +31,7 @@ from xhs.resolver import (
     preprocess_input,
     validate_url,
 )
+from xhs.product_decoder import decode_product_body
 from xhs.schemas import Product
 
 DETAIL_PATH = "/api/store/jpd/edith/detail/h5/toc"
@@ -69,15 +69,15 @@ class ProbeStatus:
 
 
 def navigation_input(raw: str) -> tuple[str, str | None]:
-    """Reuse resolver validation, but retain the original URL's navigation context."""
+    """Reuse local input validation, but retain the original URL's navigation context."""
     parsed = parse_input(raw)
     if parsed.source_type == "direct_id":
         return f"https://www.xiaohongshu.com/goods-detail/{parsed.item_id}", parsed.item_id
     matches = list(URL_PATTERN.finditer(preprocess_input(raw)))
     urls = list(dict.fromkeys(match.group().rstrip(URL_TAIL) for match in matches))
-    # Resolver merges canonical equivalents. Different contexts must not be chosen silently.
+    # Input parsing merges canonical equivalents. Different contexts must not be chosen silently.
     if len(urls) != 1:
-        raise ResolveError("AMBIGUOUS_PRODUCT_INPUT", "浏览器导航需要唯一的原始商品链接")
+        raise InputError("AMBIGUOUS_PRODUCT_INPUT", "浏览器导航需要唯一的原始商品链接")
     validate_url(urls[0])
     return urls[0], parsed.item_id
 
@@ -94,7 +94,7 @@ def navigation_target(url: str) -> Target:
             raise BrowserCollectionError("BROWSER_ACCESS_RESTRICTED", "页面要求登录或安全验证")
     try:
         return validate_url(url, redirect=True)
-    except (ResolveError, ValueError) as exc:
+    except (InputError, ValueError) as exc:
         raise BrowserCollectionError(
             "BROWSER_UNTRUSTED_REDIRECT", "已阻止不受信任或不支持的主页面导航"
         ) from exc
@@ -122,7 +122,7 @@ def response_item_id(response: Response) -> str | None:
 def parse_browser_body(body: bytes, item_id: str) -> Product:
     try:
         product = decode_product_body(body, item_id)
-    except CollectionError as exc:
+    except ProductDataError as exc:
         if exc.code == "UPSTREAM_ACCESS_RESTRICTED":
             code = "BROWSER_ACCESS_RESTRICTED"
         elif exc.code == "PRODUCT_UNAVAILABLE":

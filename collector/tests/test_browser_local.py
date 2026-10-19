@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -139,14 +138,7 @@ def test_fastapi_shared_browser_and_real_context_storage_isolation(local_site, m
         collector_factory=InspectingCollector,
     )
 
-    def deny_httpx(request):
-        pytest.fail("Product API integration must not issue HTTPX requests")
-
-    with TestClient(
-        create_app(
-            transport=httpx.MockTransport(deny_httpx), browser_manager_factory=lambda: manager
-        )
-    ) as client:
+    with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
         browser = manager._browser
         first = client.post("/api/v1/xhs/products/collect", json={"input": short})
         second = client.get(f"/api/v1/xhs/products/{ID}")

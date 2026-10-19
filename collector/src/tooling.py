@@ -1,4 +1,4 @@
-"""Collector-only checks and safe formatting, including example files."""
+"""Collector checks and formatting; reference samples and raw data stay read-only."""
 
 import os
 import subprocess
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import simplejson
 
-from xhs.archive_paths import generated_directory, generated_file, probe_directory, probe_file
+from xhs.probe_paths import protected_data
 
 COLLECTOR_ROOT = Path(__file__).resolve().parents[1]
 RUFF_CONFIG = COLLECTOR_ROOT / "pyproject.toml"
@@ -32,17 +32,16 @@ def discover_files(root: Path) -> dict[str, list[Path]]:
             and not name.startswith(".")
             and not name.endswith((".egg-info", ".dist-info"))
             and not (Path(current) / name).is_symlink()
-            and not generated_directory(Path(current) / name)
-            and not probe_directory(Path(current) / name)
+            and not protected_data(Path(current) / name, root=root)
         )
         for name in sorted(names):
             path = Path(current) / name
             if (
                 path.suffix in files
+                and not name.startswith(".")
                 and not path.is_symlink()
                 and path.is_file()
-                and not generated_file(path)
-                and not probe_file(path)
+                and not protected_data(path, root=root)
             ):
                 files[path.suffix].append(path)
     return files
@@ -57,9 +56,11 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
-def format_json(path: Path, *, check: bool) -> bool:
+def format_json(path: Path, *, check: bool, root: Path = COLLECTOR_ROOT) -> bool:
     """Preserve JSON types, decimal precision, and ordering. Never rewrite invalid input."""
-    if generated_file(path) or probe_file(path):
+    if path.name.startswith(".") or any(parent.is_symlink() for parent in (path, *path.parents)):
+        return True
+    if protected_data(path, root=root):
         return True
     try:
         original = path.read_bytes().decode("utf-8")
@@ -139,7 +140,7 @@ def run_checks(*, check: bool, root: Path = COLLECTOR_ROOT) -> int:
         print("Skipping Markdown: no files", flush=True)
     if files[".json"]:
         print("Checking JSON" if check else "Formatting JSON", flush=True)
-        results.extend(format_json(path, check=check) for path in files[".json"])
+        results.extend(format_json(path, check=check, root=root) for path in files[".json"])
     else:
         print("Skipping JSON: no files", flush=True)
     success = all(results)

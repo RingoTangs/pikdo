@@ -49,16 +49,8 @@ class FakeCollectionService:
         return BrowserProductResult(item_id, body, parse_browser_body(body, item_id), 200)
 
 
-def offline_app(transport=None, *, service=None):
-    import httpx
-
+def offline_app(*, service=None):
     from app import create_app
 
-    def deny_network(request):
-        pytest.fail("Product API must never issue HTTPX requests")
-
     service = service if service is not None else FakeCollectionService()
-    return create_app(
-        transport=transport if transport is not None else httpx.MockTransport(deny_network),
-        browser_manager_factory=lambda: service,
-    )
+    return create_app(browser_manager_factory=lambda: service)

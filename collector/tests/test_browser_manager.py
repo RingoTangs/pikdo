@@ -9,7 +9,7 @@ from test_browser_collector import ID, SHORT, FakeCDP, FakeContext, FakePage
 
 from xhs.browser import BrowserConfig, BrowserManager
 from xhs.browser_collector import BrowserCollectionError
-from xhs.errors import ResolveError
+from xhs.errors import InputError
 
 
 def scenario(function):
@@ -331,7 +331,7 @@ async def test_context_cleanup_failure_invalidates_manager_and_closes_browser():
 @scenario
 async def test_local_input_validation_precedes_state_and_queue_checks():
     manager, pw = build()
-    with pytest.raises(ResolveError):
+    with pytest.raises(InputError):
         await manager.collect("https://127.0.0.1/?token=SECRET")
     assert not pw.started
     await manager.stop()

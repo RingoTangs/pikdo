@@ -8,8 +8,8 @@ import pytest
 
 import tooling
 from xhs import browser_probe as module
-from xhs.archive_paths import DEFAULT_OUTPUT, PROBE_MARKER
 from xhs.browser_collector import BrowserCollectionError, BrowserProductResult, parse_browser_body
+from xhs.probe_paths import EXAMPLES_DIR, PROBE_MARKER
 
 ID = "6ab10b35d528ea0015dd1b7e"
 RAW = (Path(__file__).parents[1] / "examples/response.json").read_bytes()
@@ -123,7 +123,7 @@ def test_business_labels_cannot_leak_credentials(value):
 
 
 def test_examples_and_archive_output_rejected(tmp_path):
-    for output in (DEFAULT_OUTPUT, DEFAULT_OUTPUT / ID, DEFAULT_OUTPUT / "subdir"):
+    for output in (EXAMPLES_DIR, EXAMPLES_DIR / ID, EXAMPLES_DIR / "subdir"):
         with pytest.raises(BrowserCollectionError):
             module.checked_output(str(output))
     archive = tmp_path / "archive"

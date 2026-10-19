@@ -11,10 +11,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from xhs.archive_paths import DEFAULT_OUTPUT, PROBE_MARKER, archive_root
 from xhs.browser_collector import BrowserCollectionError, BrowserProductCollector, ProbeStatus
-from xhs.errors import ResolveError
-from xhs.resolver import parse_input
+from xhs.errors import InputError
+from xhs.input_parser import parse_input
+from xhs.probe_paths import EXAMPLES_DIR, PROBE_MARKER, legacy_directory
 
 
 def safe_label(value: str | None) -> str:
@@ -33,10 +33,10 @@ def checked_output(value: str) -> Path:
         if parent.is_symlink():
             raise BrowserCollectionError("BROWSER_UNSAFE_OUTPUT", "输出路径不能包含符号链接")
     path = path.resolve()
-    if path == DEFAULT_OUTPUT or path.is_relative_to(DEFAULT_OUTPUT):
-        raise BrowserCollectionError("BROWSER_UNSAFE_OUTPUT", "不能写入原始 examples 或正式归档")
-    if any(archive_root(parent) for parent in (path, *path.parents)):
-        raise BrowserCollectionError("BROWSER_UNSAFE_OUTPUT", "不能写入正式归档目录")
+    if path == EXAMPLES_DIR or path.is_relative_to(EXAMPLES_DIR):
+        raise BrowserCollectionError("BROWSER_UNSAFE_OUTPUT", "不能写入原始 examples 或历史归档")
+    if any(legacy_directory(parent) for parent in (path, *path.parents)):
+        raise BrowserCollectionError("BROWSER_UNSAFE_OUTPUT", "不能写入历史归档目录")
     for name in ("response.json", PROBE_MARKER):
         destination = path / name
         if destination.is_symlink() or (destination.exists() and not destination.is_file()):
@@ -94,7 +94,7 @@ def positive_seconds(value: str) -> float:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="独立浏览器单商品验证，不影响生产 API 或正式归档")
+    parser = argparse.ArgumentParser(description="独立浏览器单商品验证，不影响生产 API 或历史归档")
     parser.add_argument("--input", required=True, help="分享文案、短链、H5 商品链接或商品 ID")
     parser.add_argument("--headed", action="store_true", help="显示浏览器窗口")
     parser.add_argument("--channel", choices=["chrome"], help="使用系统 Chrome")
@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         result = asyncio.run(collector.collect(args.input))
         if output is not None:
             write_output(output, result.raw_body)
-    except (BrowserCollectionError, ResolveError) as exc:
+    except (BrowserCollectionError, InputError) as exc:
         code = exc.code
     except OSError:
         code = "BROWSER_OUTPUT_IO_ERROR"

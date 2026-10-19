@@ -105,32 +105,57 @@ def test_tool_execution_failure_is_reported(tmp_path, monkeypatch):
     assert tooling.run_tool("ruff", ["check"], tmp_path) is False
 
 
-def test_examples_are_checked_and_formatted_without_changing_data(tmp_path):
+def test_original_examples_remain_byte_identical_even_if_noncanonical(tmp_path):
     examples = tmp_path / "examples"
     examples.mkdir()
-    python = examples / "sample.py"
-    python.write_text("def greet( name ):\n return 'hi '+name\n")
-    markdown = examples / "README.md"
-    markdown.write_text(
-        "# Title\n\n-   Item\n\n```text\nOriginal share text https://example.com/?xsec_token=sample\n```\n"
-    )
-    path = examples / "response.json"
-    path.write_text('{"price":9.9900000000000000000001,"xsec_token":"sample","items":[2,1]}')
+    (examples / "sample.py").write_text("def greet( name ):\n return 'hi '+name\n")
+    (examples / "README.md").write_bytes(b"# Title\r\n\r\n-   Item\r\n")
+    (examples / "share_text.md").write_bytes(b"```text\r\noriginal context\r\n```\r\n")
+    response = examples / "response.json"
+    response.write_bytes(b'{ "price":9.9900000000000000000001, "items":[2,1] }\r\n')
     original = snapshot(examples)
-    original_value = simplejson.loads(path.read_text(), use_decimal=True, object_pairs_hook=list)
-    files = tooling.discover_files(tmp_path)
-    assert files == {".py": [python], ".md": [markdown], ".json": [path]}
-    assert tooling.run_checks(check=True, root=tmp_path) == 1
-    assert snapshot(examples) == original
-    assert tooling.run_checks(check=False, root=tmp_path) == 0
-    assert snapshot(examples) != original
-    assert (
-        simplejson.loads(path.read_text(), use_decimal=True, object_pairs_hook=list)
-        == original_value
-    )
-    assert "9.9900000000000000000001" in path.read_text()
-    assert "xsec_token=sample" in markdown.read_text()
-    formatted = snapshot(examples)
-    assert tooling.run_checks(check=False, root=tmp_path) == 0
+    assert tooling.discover_files(tmp_path) == {".py": [], ".md": [], ".json": []}
     assert tooling.run_checks(check=True, root=tmp_path) == 0
-    assert snapshot(examples) == formatted
+    assert tooling.run_checks(check=False, root=tmp_path) == 0
+    assert tooling.format_json(response, check=False, root=tmp_path)
+    assert snapshot(examples) == original
+
+
+@pytest.mark.parametrize("marker", [".pikdo-example-archive", ".pikdo-browser-probe"])
+def test_marked_raw_directories_and_descendants_are_never_formatted(tmp_path, marker):
+    protected = tmp_path / "custom-output"
+    nested = protected / "nested" / "product"
+    nested.mkdir(parents=True)
+    (protected / marker).write_text("marker")
+    (protected / "manifest.json").write_bytes(b"noncanonical raw content")
+    (protected / "README.md").write_bytes(b"# unformatted\r\n-   item\r\n")
+    response = nested / "response.json"
+    response.write_bytes(b'{ "precision": 9.9900000000000000001 }\r\n')
+    original = snapshot(protected)
+    assert tooling.discover_files(tmp_path) == {".py": [], ".md": [], ".json": []}
+    assert tooling.format_json(response, check=False, root=tmp_path)
+    assert tooling.run_checks(check=False, root=tmp_path) == 0
+    assert snapshot(protected) == original
+
+
+def test_temporary_json_files_are_not_formatted(tmp_path):
+    path = tmp_path / ".browser-probe-interrupted.json"
+    path.write_bytes(b"raw partial bytes")
+    assert tooling.discover_files(tmp_path)[".json"] == []
+    assert tooling.format_json(path, check=False, root=tmp_path)
+    assert path.read_bytes() == b"raw partial bytes"
+
+
+def test_direct_json_formatting_never_follows_symlinks(tmp_path):
+    target = tmp_path / "original.json"
+    target.write_bytes(b'{ "original":1 }')
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    assert tooling.format_json(link, check=False, root=tmp_path)
+    assert target.read_bytes() == b'{ "original":1 }'
+
+
+def test_custom_tool_root_cannot_bypass_real_examples_protection(tmp_path):
+    from xhs.probe_paths import EXAMPLES_DIR, protected_data
+
+    assert protected_data(EXAMPLES_DIR / "response.json", root=tmp_path)

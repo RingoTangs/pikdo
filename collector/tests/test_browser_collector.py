@@ -18,7 +18,7 @@ from xhs.browser_collector import (
     navigation_target,
     response_item_id,
 )
-from xhs.errors import ResolveError
+from xhs.errors import InputError
 
 ID = "6ab10b35d528ea0015dd1b7e"
 OTHER = "6ab10b35d528ea0015dd1b7d"
@@ -422,9 +422,9 @@ def test_original_navigation_context_retained(value):
 
 def test_bare_id_canonical_url_and_invalid_input():
     assert navigation_input(ID.upper()) == (H5, ID)
-    with pytest.raises(ResolveError):
+    with pytest.raises(InputError):
         navigation_input("https://127.0.0.1/")
-    with pytest.raises(ResolveError):
+    with pytest.raises(InputError):
         navigation_input(H5 + "?xsec_token=one " + H5 + "?xsec_token=two")
     with pytest.raises(BrowserCollectionError):
         navigation_target("https://www.xiaohongshu.com/?item_id=" + ID)

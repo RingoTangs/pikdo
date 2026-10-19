@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, PlainSerializer
 
@@ -242,20 +242,11 @@ class ErrorResponse(Model):
     item_id: str
 
 
-SourceType = Literal["direct_id", "h5_url", "short_url", "share_text"]
-
-
-class ResolveRequest(Model):
+class CollectRequest(Model):
     model_config = ConfigDict(strict=True, extra="forbid")
     input: str = Field(min_length=1, max_length=8192, repr=False)
 
 
-class ResolveResponse(Model):
-    source_type: SourceType
-    item_id: str
-    canonical_url: str
-
-
-class ResolveErrorResponse(Model):
+class CollectErrorResponse(Model):
     code: str
     message: str

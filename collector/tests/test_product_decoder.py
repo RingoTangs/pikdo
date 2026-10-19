@@ -1,4 +1,4 @@
-"""Pure decoder semantics remain compatible with legacy HTTPX and archive callers."""
+"""Pure decoder preserves strict JSON, precision, business and identity validation."""
 
 import ast
 import json
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from conftest import ITEM_ID
 
-from xhs import client, product_decoder
-from xhs.errors import CollectionError
+from xhs import product_decoder
+from xhs.errors import ProductDataError
 from xhs.product_decoder import decode_product_body
 
 
@@ -27,26 +27,21 @@ def body(*, item_id=ITEM_ID, sku_id=None, price="9.99000000000000000000001"):
     )
 
 
-def test_decimal_bytes_and_legacy_exports():
+def test_decimal_and_bytes_preserved():
     raw = body()
     before = bytes(raw)
     assert decode_product_body(raw, ITEM_ID).price.current == Decimal("9.99000000000000000000001")
     assert raw == before
-    assert client.decode_product_body is product_decoder.decode_product_body
-    assert client.reject_json_constant is product_decoder.reject_json_constant
 
 
-def test_legacy_identity_mode_preserved():
+def test_identity_is_required_and_item_and_sku_are_distinct():
     other = "a" * 24
-    # The legacy strict decoder accepts a matching SKU; browser's extra check stays stricter.
+    # Decoder checks source identities; the browser additionally requires the explicit product ID.
     assert (
         decode_product_body(body(item_id=other, sku_id=ITEM_ID), ITEM_ID).basic_info.product_item_id
         == other
     )
-    assert (
-        decode_product_body(body(item_id=None), ITEM_ID, verify_identity=False).item_id == ITEM_ID
-    )
-    with pytest.raises(CollectionError) as error:
+    with pytest.raises(ProductDataError) as error:
         decode_product_body(body(item_id=None), ITEM_ID)
     assert error.value.code == "UPSTREAM_IDENTITY_MISSING"
 
@@ -64,15 +59,9 @@ def test_legacy_identity_mode_preserved():
     ],
 )
 def test_error_semantics(raw, code):
-    with pytest.raises(CollectionError) as error:
+    with pytest.raises(ProductDataError) as error:
         decode_product_body(raw, ITEM_ID)
     assert error.value.code == code
-
-
-def test_nonfinite_legacy_mode_is_unchanged():
-    assert (
-        decode_product_body(body(price="NaN"), ITEM_ID, verify_identity=False).price.current is None
-    )
 
 
 def test_pure_decoder_has_no_transport_imports():

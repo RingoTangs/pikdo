@@ -96,6 +96,8 @@ def test_post_preserves_original_input_and_returns_product_only(value):
         {},
         {"input": ""},
         {"input": 123},
+        {"input": None},
+        {"input": []},
         {"input": "a" * 8193},
         {"input": ITEM_ID, "secret": "SECRET"},
         {"input": "https://127.0.0.1/?xsec_token=SECRET"},
@@ -238,43 +240,6 @@ def test_api_excludes_sensitive_parameters_from_original_fixture(payload):
         assert "sign=" not in (service["icon"] or "")
 
 
-def test_browser_and_resolver_restriction_states_are_independent():
-    import httpx
-
-    service = FakeCollectionService()
-    service.error = BrowserCollectionError("BROWSER_ACCESS_RESTRICTED", "restricted")
-    calls = []
-
-    def handler(request):
-        calls.append(request)
-        assert request.url.host == "xhslink.com"
-        return httpx.Response(
-            302, headers={"Location": f"https://www.xiaohongshu.com/goods-detail/{ITEM_ID}"}
-        )
-
-    with TestClient(offline_app(httpx.MockTransport(handler), service=service)) as client:
-        assert client.get(PATH).status_code == 503
-        assert (
-            client.post(
-                "/api/v1/xhs/products/resolve", json={"input": "https://xhslink.com/m/test"}
-            ).status_code
-            == 200
-        )
-    assert len(calls) == 1
-
-    service.error = None
-    with TestClient(
-        offline_app(httpx.MockTransport(lambda request: httpx.Response(403)), service=service)
-    ) as client:
-        assert (
-            client.post(
-                "/api/v1/xhs/products/resolve", json={"input": "https://xhslink.com/m/test"}
-            ).status_code
-            == 503
-        )
-        assert client.get(PATH).status_code == 200
-
-
 def test_unknown_browser_error_does_not_echo_code_or_message():
     service = FakeCollectionService()
     service.error = BrowserCollectionError("SECRET_CODE", "Cookie=SECRET")
@@ -283,3 +248,18 @@ def test_unknown_browser_error_does_not_echo_code_or_message():
     assert response.status_code == 502
     assert response.json()["code"] == "BROWSER_NAVIGATION_FAILED"
     assert "SECRET" not in response.text
+
+
+def test_only_three_business_api_paths_and_current_models():
+    service = FakeCollectionService()
+    with TestClient(offline_app(service=service)) as client:
+        spec = client.get("/openapi.json").json()
+        assert spec["info"]["version"] == VERSION
+        assert set(spec["paths"]) == {"/health", COLLECT_PATH, "/api/v1/xhs/products/{item_id}"}
+        assert "CollectRequest" in spec["components"]["schemas"]
+        assert not any(name.startswith("Resolve") for name in spec["components"]["schemas"])
+        response = client.post("/api/v1/xhs/products/resolve", json={"input": "SECRET"})
+        # The remaining GET /{item_id} route yields framework-default 405 for this method.
+        assert response.status_code == 405 and "SECRET" not in response.text
+        assert not hasattr(client.app.state, "resolver") and not hasattr(client.app.state, "xhs")
+        assert service.calls == []

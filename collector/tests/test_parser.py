@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from conftest import ITEM_ID
 
-from xhs.errors import CollectionError
+from xhs.errors import ProductDataError
 from xhs.parser import parse_count, parse_product
 
 
@@ -112,7 +112,7 @@ def test_fans_fallback_and_false_delivery(payload):
     ],
 )
 def test_invalid_structure(payload):
-    with pytest.raises(CollectionError) as exc:
+    with pytest.raises(ProductDataError) as exc:
         parse_product(payload, ITEM_ID)
     assert exc.value.code == "UPSTREAM_INVALID_DATA"
 
