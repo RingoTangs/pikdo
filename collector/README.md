@@ -358,3 +358,128 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 
 第一版不解析 JavaScript、HTML 跳转或验证码，不使用浏览器和代理池。
 自动化测试通过 MockTransport 覆盖跳转与异常，不依赖实时网络；真实短链是否仍有效需要单独验证。
+
+## 本地批量采集与原始响应归档
+
+无需启动 FastAPI。在 `collector` 目录执行：
+
+```bash
+uv run collect-examples --help
+uv run collect-examples --dry-run
+uv run collect-examples --limit 2
+uv run collect-examples
+uv run collect-examples --refresh
+```
+
+除 `--help` 和 `--dry-run` 外，这些命令会访问真实上游。建议先 dry-run，确认来源后再手动采集。
+当前 `examples/share_text.md` 有 6 个 `text` 代码块、5 个不同来源，条目 #3、#4 重复。
+普通说明段落被忽略；每个 text 代码块关联最近的数字标题，保留原始多行文案，仅在内存中做解析。
+空块、缺少编号、未闭合代码块和非法输入会报告错误，输入文件不修改。
+
+默认输入为 `collector/examples/share_text.md`，默认输出为 `collector/examples/`。
+路径基于 Collector 项目目录计算，不依赖运行命令时的工作目录；相对参数路径也以 Collector 为基准。
+
+```bash
+uv run collect-examples --input examples/share_text.md --output /absolute/path/to/private-archives --interval 2
+```
+
+自定义输出目录必须为空或具有本工具创建的归档标记。建议将自定义归档放在仓库外；
+默认 examples 生成路径已由 `.gitignore` 排除，自定义仓库内路径需要自行设置 Git 忽略规则。
+
+| 参数                 | 说明                                                                          |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `--dry-run`          | 不联网、不创建目录或文件、不恢复提交日志；统计来源、缓存和未知短链目标        |
+| `--limit N`          | 按首次出现顺序选择前 N 个不同有效来源，不按原始条目数计数；无效条目单独报错   |
+| `--refresh`          | 重新请求本批次选中商品的详情，已登记的短链来源映射继续复用                    |
+| `--interval SECONDS` | 请求开始之间的最小间隔，默认 2 秒，可设为有限非负数；覆盖每一跳短链及详情请求 |
+| `--input PATH`       | 指定含数字标题及 text fenced code block 的 UTF-8 Markdown                     |
+| `--output PATH`      | 指定归档根目录                                                                |
+
+### 输出结构与敏感数据
+
+```text
+examples/
+├── README.md                     # 已有参考文件，不修改
+├── share_text.md                 # 已有输入文件，不修改
+├── response.json                 # 已有参考响应，不修改
+├── manifest.json                 # 本工具维护的安全来源及快照索引
+├── .pikdo-example-archive        # 输出目录归属标记
+├── .collect-examples.lock        # 互斥运行锁
+└── {24位小写商品ID}/
+    ├── response.json             # 上游原始响应正文字节
+    └── index.md                  # 商品摘要、来源和 SHA-256
+```
+
+新建商品目录使用 0700，生成文件使用 0600 权限（受操作系统支持限制）。
+原始响应可能包含签名、分享追踪参数及其他敏感数据；只用于本地归档，不通过公开 API 暴露。
+默认生成的商品目录、manifest 和内部状态文件被 Git 忽略，三个原始参考文件继续跟踪。
+不要将原始响应直接复制到公开问题、日志或 PR 描述中。
+
+### 字节级保全
+
+客户端新增内部 `fetch_product_result()`，一次详情请求同时返回原始 bytes 和解析后的 Product。
+`fetch_product()` 继续返回 Product，现有 API 行为和响应字段不变。
+
+归档使用 **HTTPX `response.content`**：这是解压 Content-Encoding 后的响应正文，不包含 Headers 或 gzip 传输字节。
+`response.json` 不经过 `json.dumps`、Pydantic 序列化、格式化、字段筛选或脱敏，不改变空白、换行、键顺序及数字文本。
+数据直接写入同目录临时文件，flush/fsync、SHA-256 校验后用 `os.replace` 原子替换，再核验目标文件摘要。
+只有清单等工具元数据使用 JSON 序列化。
+
+HTTP 成功后仍需验证 JSON、业务 success、详情结构、标题及商品身份。
+归档验证区分商品 itemId 与 SKU ID：两者可以不同；请求 ID 必须匹配明确的商品 ID 或一致的 SKU 身份。
+缺失可验证身份、身份格式错误或 SKU 来源冲突均不归档；不能把另一个商品的响应存到当前目录。
+
+`index.md` 从 Product 生成，包含店铺、到手价、展示价、销量原文、规范 H5 URL、全部成功来源编号、采集时间和原始响应摘要。
+可选字段缺失显示“未提供”，不补造数值；上游文字经过 Markdown/HTML 转义和敏感信息过滤。
+索引可重新生成，原始 response.json 永不从 Product 重建。
+
+### 两级去重与缓存
+
+1. 来源去重：复用 ProductResolver 的本地解析，按规范 URL 的 UTF-8 SHA-256 标识来源。
+   短链保留 hostname 和区分大小写的 path，移除 query、fragment；纯 ID 和 H5 使用规范商品链接。
+   同一来源只解析一次，保留所有编号及输入文件来源。
+1. 商品去重：不同来源解析到同一 ID 后，每批只请求一次详情；失败的详情请求也不会在同批被其他来源重复触发。
+
+`manifest.json` 使用 `schema_version=1`，包含：
+
+- `sources`：以 source_hash 为键，保存 source_hash、source_url、item_id、source_type、source_types、source_file、entry_numbers、entry_sources。
+- `products`：以商品 ID 为键，保存 fetched_at 和 response_sha256。
+
+来源 URL 不含 token、签名或追踪参数，不保存原始分享文案或 HTTP 凭据。
+编号按历史成功来源合并；`entry_sources` 分别保留不同输入文件的编号，不自动删除历史来源。
+
+重复运行时已登记来源不再解析；响应摘要、JSON、业务及身份检查均通过后，跳过详情请求。
+同一商品的新来源只更新来源索引和 index；新增商品才请求详情。
+缓存的采集时间保持不变；缺失 index 可以从缓存 Product 重新生成。
+HTTP 200 但业务失败、无效 JSON 或身份不匹配不会创建商品目录或成功清单记录。
+
+缓存缺失或损坏时默认报 `CACHE_MISSING` / `CACHE_CORRUPT`，不会自动覆盖，需显式使用 `--refresh`。
+manifest 损坏、重复键、未知版本或引用错误会在联网及写入前停止，绝不静默重建；请先备份并检查清单。
+未知商品目录即使使用 refresh 也不自动接管，避免覆盖不相关文件。
+
+### 刷新、恢复与失败处理
+
+刷新时先完整下载并验证新数据，然后才替换旧响应；超时、HTTP、JSON、业务或身份失败都保留旧响应、索引和清单。
+原始数据文件先提交，再更新成功 manifest。隐藏提交日志记录预期摘要和安全元数据，不记录响应正文或凭据。
+
+出现进程中断或磁盘错误后，再次运行会自动检查 `.collect-examples.pending.json`：
+数据已提交则补完 index 与 manifest；尚未完成 staging 且原文件未变化则放弃未完成提交，允许重新采集。
+摘要或清单被外部修改时报告 `RECOVERY_CONFLICT`，不会猜测或覆盖。dry-run 仅报告 `RECOVERY_PENDING`，不执行恢复。
+运行锁由操作系统在进程退出后释放；不要在另一个采集进程运行时删除锁文件。
+
+一般条目失败后继续处理；401/403/429/461 或明确访问受限的业务错误会停止后续网络请求，不重试、不轮换身份。
+输出只包含条目编号、计数和固定错误码，不打印原始文案、token、Location 或异常正文。
+全部成功退出 0；存在条目失败或访问受限退出 1；参数不合法退出 2。
+
+### 格式化与测试
+
+`uv run lint` 和 `uv run format` 跳过默认 examples 中生成的商品目录、manifest 和内部状态文件；
+带归档标记的自定义输出目录也使用相同保护。`format_json()` 对归档文件另设防御性跳过。
+普通参考示例继续支持格式检查，但本次功能不改动三个原始参考文件。
+
+```bash
+uv run test tests/test_example_collector.py -v
+```
+
+归档测试只使用 tmp_path 和 MockTransport，不访问真实网络，包括原始字节一致性、gzip 解码、去重、增量、刷新、
+错误与访问受限、中断恢复、路径保护及格式化后字节不变。开发验收不执行真实批量采集。

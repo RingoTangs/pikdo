@@ -21,6 +21,7 @@ dev = "app:main"
 test = "pytest:main"
 lint = "tooling:lint"
 format = "tooling:format"
+collect-examples = "xhs.example_collector:main"
 
 [build-system]
 requires = ["setuptools>=77"]

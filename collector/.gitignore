@@ -4,3 +4,9 @@ __pycache__
 dist
 .pytest_cache
 .ruff_cache/
+
+# Generated raw archives; keep the three original reference files tracked.
+/examples/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
+/examples/manifest.json
+/examples/.pikdo-example-archive
+/examples/.collect-examples*
