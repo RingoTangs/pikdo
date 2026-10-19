@@ -8,9 +8,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+import httpx
 import pytest
+from fastapi.testclient import TestClient
 
+from app import create_app
 from xhs import browser_collector as module
+from xhs.browser import BrowserConfig, BrowserManager
 from xhs.browser_collector import BrowserCollectionError, BrowserProductCollector
 
 pytestmark = pytest.mark.skipif(
@@ -50,7 +54,13 @@ def local_site(monkeypatch):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                html = f'<html><body>Local product<script>fetch("/api?item_id={ID}")</script></body></html>'
+                html = (
+                    "<html><body>Local product<script>"
+                    'window.prior = localStorage.getItem("probe");'
+                    'localStorage.setItem("probe", "stored");'
+                    'document.cookie = "local_session=isolated";'
+                    f'fetch("/api?item_id={ID}")</script></body></html>'
+                )
                 self.wfile.write(html.encode())
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -104,3 +114,47 @@ def test_real_chromium_blocks_later_302_hop_before_request(local_site):
         asyncio.run(BrowserProductCollector(navigation_timeout=10).collect(base + "/second"))
     assert error.value.code == "BROWSER_UNTRUSTED_REDIRECT"
     assert received == ["/second", "/evil"]
+
+
+def test_fastapi_shared_browser_and_real_context_storage_isolation(local_site, monkeypatch):
+    base, received = local_site
+    short = "https://xhslink.com/m/localtest"
+    contexts = []
+    previous_storage = []
+
+    class InspectingCollector(BrowserProductCollector):
+        async def _collect_page(self, context, page, url, expected_id):
+            contexts.append(context)
+            assert await context.cookies() == []
+            result = await super()._collect_page(context, page, url, expected_id)
+            previous_storage.append(await page.evaluate("window.prior"))
+            return result
+
+    def local_input(raw):
+        return (base + "/short", None) if raw == short else (base + f"/goods-detail/{ID}", ID)
+
+    monkeypatch.setattr(module, "navigation_input", local_input)
+    manager = BrowserManager(
+        BrowserConfig(navigation_timeout=10, response_timeout=5),
+        collector_factory=InspectingCollector,
+    )
+
+    def deny_httpx(request):
+        pytest.fail("Product API integration must not issue HTTPX requests")
+
+    with TestClient(
+        create_app(
+            transport=httpx.MockTransport(deny_httpx), browser_manager_factory=lambda: manager
+        )
+    ) as client:
+        browser = manager._browser
+        first = client.post("/api/v1/xhs/products/collect", json={"input": short})
+        second = client.get(f"/api/v1/xhs/products/{ID}")
+        assert first.status_code == second.status_code == 200
+        assert first.json()["item_id"] == second.json()["item_id"] == ID
+        assert "raw_body" not in first.json() and "LOCAL_SENTINEL" not in first.text
+        assert manager._browser is browser and browser.contexts == []
+        assert client.get("/health").json() == {"status": "ok"}
+    assert manager.state == "stopped" and not browser.is_connected()
+    assert len(contexts) == 2 and contexts[0] is not contexts[1]
+    assert previous_storage == [None, None]

@@ -4,9 +4,7 @@ import json
 import httpx
 import pytest
 from conftest import ITEM_ID
-from fastapi.testclient import TestClient
 
-from app import create_app
 from xhs.client import XhsClient
 from xhs.errors import CollectionError, ResolveError
 
@@ -26,25 +24,38 @@ def test_restriction_blocks_both_network_paths(status, short_first, caplog):
         requests.append(request)
         return httpx.Response(status, json={"success": False, "msg": "请完成安全验证 SECRET"})
 
-    with TestClient(create_app(httpx.MockTransport(handler))) as client:
-        first = client.post(RESOLVE, json=SHORT) if short_first else client.get(PATH)
-        assert first.status_code == 503
-        expected = "SHORT_URL_ACCESS_RESTRICTED" if short_first else "UPSTREAM_ACCESS_RESTRICTED"
-        assert first.json()["code"] == expected
-        for response in (first, client.get(PATH), client.post(RESOLVE, json=SHORT)):
-            assert response.headers["X-Collector-Upstream-Status"] == str(status)
-            assert response.headers["X-Collector-Blocked"] == "true"
-            assert "SECRET" not in response.text
-        assert client.get(PATH).json() == {
-            "code": "UPSTREAM_REQUEST_BLOCKED",
-            "message": "此前上游访问受限，已停止网络请求；请人工检查",
-            "item_id": ITEM_ID,
-        }
-        assert client.post(RESOLVE, json=SHORT).json()["code"] == "UPSTREAM_REQUEST_BLOCKED"
-        for value in (ITEM_ID, f"https://www.xiaohongshu.com/goods-detail/{ITEM_ID}"):
-            assert client.post(RESOLVE, json={"input": value}).status_code == 200
-        assert client.get("/health").status_code == 200
-        assert client.get("/docs").status_code == 200
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = XhsClient(http)
+            with pytest.raises((CollectionError, ResolveError)) as first:
+                if short_first:
+                    await client.fetch_short_redirect("xhslink.com", "/m/example")
+                else:
+                    await client.fetch_product(ITEM_ID)
+            expected = (
+                "SHORT_URL_ACCESS_RESTRICTED" if short_first else "UPSTREAM_ACCESS_RESTRICTED"
+            )
+            assert first.value.code == expected
+            errors = [first.value]
+            for operation in (
+                client.fetch_product(ITEM_ID),
+                client.fetch_short_redirect("xhslink.com", "/m/example"),
+            ):
+                with pytest.raises((CollectionError, ResolveError)) as subsequent:
+                    await operation
+                assert subsequent.value.code == "UPSTREAM_REQUEST_BLOCKED"
+                errors.append(subsequent.value)
+            for error in errors:
+                assert error.headers["X-Collector-Upstream-Status"] == str(status)
+                assert error.headers["X-Collector-Blocked"] == "true"
+                assert "SECRET" not in str(error)
+            from xhs.resolver import ProductResolver
+
+            resolver = ProductResolver(client)
+            for value in (ITEM_ID, f"https://www.xiaohongshu.com/goods-detail/{ITEM_ID}"):
+                assert (await resolver.resolve(value)).item_id == ITEM_ID
+
+    asyncio.run(exercise())
     assert len(requests) == 1
     safe_logs = [r.getMessage() for r in caplog.records if r.name == "xhs.client"]
     assert len(safe_logs) == 1
@@ -100,15 +111,20 @@ def test_other_errors_do_not_latch(failure, payload):
             return httpx.Response(500 if failure == "http" else 200, content=b"invalid")
         return httpx.Response(200, content=json.dumps(payload, default=str))
 
-    with TestClient(create_app(httpx.MockTransport(handler))) as client:
-        first = client.get(PATH)
-        assert first.status_code in (502, 504)
-        assert "X-Collector-Blocked" not in first.headers
-        assert client.get(PATH).status_code == 200
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = XhsClient(http)
+            with pytest.raises(CollectionError) as error:
+                await client.fetch_product(ITEM_ID)
+            assert error.value.status_code in (502, 504)
+            assert "X-Collector-Blocked" not in error.value.headers
+            assert (await client.fetch_product(ITEM_ID)).item_id == ITEM_ID
+
+    asyncio.run(exercise())
     assert len(calls) == 2
 
 
-def test_new_app_resets_local_guard(payload):
+def test_new_httpx_client_resets_local_guard(payload):
     calls = []
 
     def handler(request):
@@ -117,10 +133,15 @@ def test_new_app_resets_local_guard(payload):
             return httpx.Response(461)
         return httpx.Response(200, content=json.dumps(payload, default=str))
 
-    transport = httpx.MockTransport(handler)
-    with TestClient(create_app(transport)) as client:
-        assert client.get(PATH).status_code == 503
-        assert client.get(PATH).json()["code"] == "UPSTREAM_REQUEST_BLOCKED"
-    with TestClient(create_app(transport)) as client:
-        assert client.get(PATH).status_code == 200
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            first = XhsClient(http)
+            with pytest.raises(CollectionError):
+                await first.fetch_product(ITEM_ID)
+            with pytest.raises(CollectionError) as error:
+                await first.fetch_product(ITEM_ID)
+            assert error.value.code == "UPSTREAM_REQUEST_BLOCKED"
+            assert (await XhsClient(http).fetch_product(ITEM_ID)).item_id == ITEM_ID
+
+    asyncio.run(exercise())
     assert len(calls) == 2

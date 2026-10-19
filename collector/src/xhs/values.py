@@ -66,7 +66,20 @@ def sensitive(key: str) -> bool:
             "xsec",
             "trace",
         )
-    ) or compact in {"sign", "aegis", "t", "xssource", "xsecsource"}
+    ) or compact in {
+        "sign",
+        "aegis",
+        "t",
+        "xs",
+        "xt",
+        "xssource",
+        "xsecsource",
+        "xhsshare",
+        "appuid",
+        "apptime",
+        "shareid",
+        "sharechannel",
+    }
 
 
 def safe_url(value: object, *, customer_service: bool = False) -> str | None:

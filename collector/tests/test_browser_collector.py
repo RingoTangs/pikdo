@@ -505,3 +505,20 @@ def test_explicit_delisting_is_distinct_from_request_failure(browser):
     with pytest.raises(BrowserCollectionError) as error:
         collect(browser)
     assert error.value.code == "BROWSER_PRODUCT_UNAVAILABLE"
+
+
+def test_external_browser_reuses_core_and_never_closes_shared_browser(browser):
+    result = asyncio.run(BrowserProductCollector().collect_with_browser(SHORT, browser.browser))
+    assert result.item_id == ID and result.raw_body == RAW
+    assert browser.options is None and not browser.stopped
+    assert not browser.browser.closed and browser.context.closed
+    assert browser.cdp.detached and not any(browser.page.listeners.values())
+
+
+def test_external_browser_failure_still_closes_context(browser):
+    browser.page.error = PlaywrightError("SECRET")
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(BrowserProductCollector().collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == "BROWSER_NAVIGATION_FAILED"
+    assert browser.context.closed and not browser.browser.closed
+    assert browser.options is None

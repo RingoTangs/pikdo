@@ -1,12 +1,13 @@
-# Pikdo Collector v0.3.0
+# Pikdo Collector v0.4.0a1
 
-小红书商品详情采集 API，使用 Python 3.13、uv、FastAPI 和 HTTPX。
+小红书商品采集 API，使用 Python 3.13、uv、FastAPI 和 Playwright。Phase 2A 将生产 GET/collect 接入共享 Browser；Resolver 和批量归档暂时保留 HTTPX。
 
 ## 启动
 
 ```bash
 cd collector
 uv sync
+uv run playwright install chromium
 uv run dev
 ```
 
@@ -18,7 +19,9 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 ```
 
 `GET /health` 返回 `{"status":"ok"}`，不访问上游。
-商品接口仅接受 24 位十六进制 ID，统一转小写，只访问固定上游接口，不接受任意 URL。
+GET 商品接口接受 24 位十六进制 ID，统一转小写，通过 Chromium 打开规范 H5 页面。
+POST collect 接受分享文案、可信短链、官方 H5 商品 URL 或商品 ID，正常导航原始入口后捕获页面自身的详情响应。
+两者仅返回现有 Product，不通过 HTTPX 主动请求详情、不自动兜底，不持久化原始正文。
 
 ## 返回字段
 
@@ -51,27 +54,76 @@ curl http://localhost:8000/api/v1/xhs/products/6ab10b35d528ea0015dd1b7e
 
 ## 错误结构
 
-商品接口错误直接返回 `code`、`message`、`item_id`，没有 `detail` 外层：
+GET 商品接口错误直接返回 `code`、`message`、`item_id`，没有 `detail` 外层：
 
 ```json
 {"code":"INVALID_ITEM_ID","message":"商品 ID 必须为 24 位十六进制字符串","item_id":"invalid"}
 ```
 
-| HTTP 状态 | code                         | 含义                                           |
-| --------- | ---------------------------- | ---------------------------------------------- |
-| 422       | `INVALID_ITEM_ID`            | 无效 ID，不请求上游                            |
-| 504       | `UPSTREAM_TIMEOUT`           | 上游请求超时                                   |
-| 503       | `UPSTREAM_ACCESS_RESTRICTED` | HTTP 401/403/429/461 或明确安全验证、登录消息  |
-| 502       | `UPSTREAM_HTTP_ERROR`        | 其他非成功 HTTP 状态                           |
-| 502       | `UPSTREAM_REQUEST_FAILED`    | DNS、连接等传输失败                            |
-| 502       | `UPSTREAM_INVALID_JSON`      | 返回无效 JSON                                  |
-| 502       | `UPSTREAM_INVALID_DATA`      | 商品结构或标题缺失                             |
-| 502       | `UPSTREAM_BUSINESS_ERROR`    | 未知业务失败                                   |
-| 404       | `PRODUCT_UNAVAILABLE`        | 明确不存在、下架、失效、违规状态或不可购买按钮 |
+| HTTP 状态 | code                                                                                            | 含义                           |
+| --------- | ----------------------------------------------------------------------------------------------- | ------------------------------ |
+| 422       | `INVALID_ITEM_ID`                                                                               | GET 商品 ID 非法               |
+| 422       | `INVALID_PRODUCT_INPUT` 等本地输入错误                                                          | collect 输入或请求结构非法     |
+| 404       | `BROWSER_PRODUCT_UNAVAILABLE`                                                                   | 仅上游明确不存在、下架或失效   |
+| 502       | `BROWSER_NAVIGATION_FAILED` / `BROWSER_UNTRUSTED_REDIRECT`                                      | 导航失败或不受信任跳转         |
+| 502       | `BROWSER_INVALID_RESPONSE` / `BROWSER_PRODUCT_ID_MISMATCH` / `BROWSER_PRODUCT_RESPONSE_MISSING` | 响应、业务或身份校验失败       |
+| 503       | `BROWSER_LAUNCH_FAILED` / `BROWSER_UNAVAILABLE`                                                 | 浏览器初始化失败或运行期不可用 |
+| 503       | `BROWSER_ACCESS_RESTRICTED` / `BROWSER_BUSY`                                                    | 已停止浏览器采集或等待许可超时 |
+| 504       | `BROWSER_NAVIGATION_TIMEOUT` / `BROWSER_PRODUCT_RESPONSE_TIMEOUT`                               | 页面导航或商品响应超时         |
 
-上游 HTTP 404、请求失败和字段缺失不会被误判为下架。
-HTTPX 客户端在应用生命周期中复用并关闭；连接和连接池等待超时 5 秒，读写超时 10 秒。
-不跟随重定向、不自动重试，不实现数据库、批量采集、代理池或浏览器兜底。
+标准化业务 JSON 与 URL 继续过滤敏感信息，并补充过滤 x-s、x-t 和原始分享追踪参数；原始响应 bytes 不受影响。
+
+GET 错误包含 `code`、`message`、`item_id`；POST collect 错误只包含 `code`、`message`。
+请求失败、上游 HTTP 404、字段缺失和响应超时均不会推断商品下架。错误使用固定公开消息，不回显浏览器异常、凭据或分享文案。
+
+## Phase 2A：生产浏览器采集
+
+```bash
+curl -X POST http://localhost:8000/api/v1/xhs/products/collect \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"https://xhslink.com/m/4tQFfvENODH"}'
+curl http://localhost:8000/api/v1/xhs/products/6ac8da9a7e1073000114c7ae
+```
+
+POST collect 直接打开原始短链，保留可信重定向带来的分享上下文；不先调用 Resolver 或 HTTPX。
+GET 只有商品 ID，从无分享参数的规范 H5 页面导航，可能无法获得与分享入口相同的结果。
+POST 成功不代表 GET 成功；没有有效响应时返回明确错误，不拼造 token 或回退到 HTTPX。
+
+BrowserManager 在 FastAPI Lifespan 中启动一个 Playwright Chromium Browser，并在关闭时释放任务、Browser 和 Playwright。
+Browser 是浏览器进程；BrowserContext 是该进程中的独立浏览器存储环境。每次采集新建 Context，Cookie、LocalStorage 不跨请求共享。
+启动失败会阻止应用启动；运行期 Browser 断开会停止当前及排队采集，并拒绝新采集，不自动重启。
+`/health` 保持本地存活检查，不表示浏览器或上游可用。
+
+简单配置对象可通过应用工厂传入：
+
+```python
+from app import create_app
+from xhs.browser import BrowserConfig
+
+application = create_app(browser_config=BrowserConfig(channel="chrome"))
+```
+
+| 参数                         | 默认值                                                          |
+| ---------------------------- | --------------------------------------------------------------- |
+| `headless`                   | `True`                                                          |
+| `channel`                    | `None`（Playwright Chromium）；可设 `"chrome"` 使用系统 Chrome  |
+| `max_concurrent_collections` | `1`                                                             |
+| `queue_timeout`              | `5.0` 秒                                                        |
+| `navigation_timeout`         | `30.0` 秒；也限制启动和 Context 创建                            |
+| `response_timeout`           | `15.0` 秒                                                       |
+| `cleanup_timeout`            | `5.0` 秒；分别限制页面监听、Context、Browser 和 Playwright 清理 |
+
+信号量限制同时运行的采集，不代表队列容量限制；等待许可时不创建 Context。
+取消请求会等待其资源释放后再释放许可；服务关闭会停止接单、终止等待和运行任务并完成清理。
+清理异常时管理器不可用并尝试关闭 Browser，不继续复用可能泄漏的 Context。
+
+HTTP 401/403/429/461、登录、安全验证或明确访问限制会锁存 `BROWSER_ACCESS_RESTRICTED`，停止同管理器的运行中、排队及后续采集。
+没有自动恢复、重置接口或重试；应先人工检查。状态是进程本地的，部署应保持单服务工作进程；本阶段不新增多个浏览器工作进程。
+
+`POST /api/v1/xhs/products/resolve` 仍使用原有 HTTPX 短链解析；`collect-examples` 仍用旧 HTTPX 详情客户端。
+两者保留旧实现和独立测试，分别留待 Phase 2B、Phase 3 迁移。浏览器阻断与 HTTPX 阻断互不传播。
+原始 JSON 解码现位于纯数据模块 `xhs.product_decoder`，客户端保留兼容导出；Decimal、业务判断和旧归档身份语义不变，浏览器额外要求明确商品 ID 一致。
+测试可用 `create_app(browser_manager_factory=...)` 注入实现 start/stop/collect 的假服务，不需要启动浏览器或全局替换状态。
 
 ## 测试与构建
 
@@ -86,7 +138,8 @@ uv build
 例如 `uv run test -v` 或 `uv run test tests/test_parser.py -q`。
 原有 `uv run pytest` 仍然可用。
 
-测试使用完整 fixture 和 HTTPX MockTransport，不依赖真实网络。
+产品 API 测试显式注入假采集服务；HTTPX MockTransport 仅用于旧客户端、Resolver 和归档测试，不再驱动生产 GET。
+常规测试不依赖真实浏览器或真实网络；本地 Chromium 与真实小红书 API 验证单独执行和报告。
 真实请求需另行启动服务，通过上述 curl 命令检查结果。
 
 ## 目录
@@ -484,9 +537,10 @@ uv run test tests/test_example_collector.py -v
 归档测试只使用 tmp_path 和 MockTransport，不访问真实网络，包括原始字节一致性、gzip 解码、去重、增量、刷新、
 错误与访问受限、中断恢复、路径保护及格式化后字节不变。开发验收不执行真实批量采集。
 
-## 上游访问受限保护
+## 保留的 HTTPX 客户端访问受限保护
 
-商品详情和短链请求共用一个进程内保护状态。上游 HTTP 401、403、429、461，
+以下说明针对保留的 XhsClient（Resolver 与 collect-examples），不适用于已经迁移的 GET/collect。
+同一旧客户端的商品详情和短链请求共用保护状态。上游 HTTP 401、403、429、461，
 或商品响应中明确的安全验证、登录等业务拒绝，会立即阻断此客户端后续网络请求。
 首次错误保留 `UPSTREAM_ACCESS_RESTRICTED` 或 `SHORT_URL_ACCESS_RESTRICTED`；
 后续请求返回 HTTP 503、`UPSTREAM_REQUEST_BLOCKED`，详情错误继续包含 `item_id`。
@@ -506,10 +560,10 @@ CLI 遇到这些错误也会停止批次，不重试或探测恢复。
 重启服务（重新创建客户端）只清除本地阻断，不代表上游已经恢复。
 多进程部署的状态彼此独立，其他进程不会共享本地阻断。
 
-## Phase 1：浏览器单商品验证
+## 独立 browser-probe（沿用 Phase 1）
 
 新增独立 `BrowserProductCollector` 与 `browser-probe`，监听页面正常导航发出的商品详情响应，不主动调用详情接口。
-现有生产 API、HTTPX 和 `collect-examples` 行为不变；Phase 1 不写正式商品归档。
+CLI 使用自己管理的临时 Browser，不借用生产管理器，不写正式商品归档；其单次采集核心与生产路径相同。
 
 ```bash
 uv sync

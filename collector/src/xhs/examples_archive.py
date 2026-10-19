@@ -23,7 +23,7 @@ from xhs.archive_paths import (
     MARKER_BODY,
     STAGE,
 )
-from xhs.client import decode_product_body
+from xhs.product_decoder import decode_product_body
 from xhs.resolver import parse_input
 from xhs.schemas import Product, SourceType
 from xhs.values import safe_json

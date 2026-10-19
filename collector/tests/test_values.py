@@ -49,3 +49,27 @@ def test_parser_preserves_original_fixture(payload):
     parse_product(payload, ITEM_ID)
     assert payload == original_payload
     assert path.read_bytes() == original_bytes
+
+
+def test_browser_signatures_and_share_context_are_filtered_without_mutation():
+    from copy import deepcopy
+
+    from xhs.values import safe_json, safe_url
+
+    source = {
+        "name": "business",
+        "x-s": "SECRET_SIGNATURE",
+        "x_t": "SECRET_TIMESTAMP",
+        "share_id": "SECRET_SHARE",
+        "appuid": "SECRET_UID",
+    }
+    original = deepcopy(source)
+    assert safe_json(source) == {"name": "business"}
+    assert source == original
+    assert (
+        safe_url(
+            "https://example.com/a?%78-s=SECRET&x-t=SECRET&xhsshare=SECRET&"
+            "appuid=SECRET&apptime=SECRET&share_id=SECRET&share_channel=SECRET&keep=1"
+        )
+        == "https://example.com/a?keep=1"
+    )
