@@ -54,12 +54,16 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     async def handle_collection_error(request: Request, exc: CollectionError):
         item_id = request.path_params.get("item_id", "")
         error = ErrorResponse(code=exc.code, message=exc.message, item_id=item_id.lower())
-        return JSONResponse(status_code=exc.status_code, content=error.model_dump())
+        return JSONResponse(
+            status_code=exc.status_code, content=error.model_dump(), headers=exc.headers
+        )
 
     @application.exception_handler(ResolveError)
     async def handle_resolve_error(request: Request, exc: ResolveError) -> JSONResponse:
         error = ResolveErrorResponse(code=exc.code, message=exc.message)
-        return JSONResponse(status_code=exc.status_code, content=error.model_dump())
+        return JSONResponse(
+            status_code=exc.status_code, content=error.model_dump(), headers=exc.headers
+        )
 
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(
@@ -96,7 +100,7 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
             for status, description in {
                 422: "输入非法、未识别链接、不是商品链接或包含多个不同目标。",
                 502: "短链连接失败、异常 HTTP 状态、不支持的页面或重定向异常。",
-                503: "短链访问受限（上游 HTTP 401/403/429/461）。",
+                503: "短链访问受限或本进程已阻断请求（UPSTREAM_REQUEST_BLOCKED）。诊断头 X-Collector-Upstream-Status、X-Collector-Blocked 返回触发状态。",
                 504: "短链请求超时。",
             }.items()
         },
@@ -165,7 +169,7 @@ def create_app(transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
                 404: "上游明确商品不存在、已下架或已失效。",
                 422: "商品 ID 不是 24 位十六进制字符串。",
                 502: "上游 HTTP、连接、JSON、业务状态或商品数据结构异常。",
-                503: "上游访问受限。",
+                503: "上游访问受限或本进程已阻断请求（UPSTREAM_REQUEST_BLOCKED）。诊断头 X-Collector-Upstream-Status、X-Collector-Blocked 返回触发状态。",
                 504: "上游商品详情请求超时。",
             }.items()
         },

@@ -234,7 +234,11 @@ async def collect(
                             raise
                 except (ResolveError, CollectionError, ArchiveError) as exc:
                     report.error(group.entry_numbers, exc.code)
-                    if exc.code in {"SHORT_URL_ACCESS_RESTRICTED", "UPSTREAM_ACCESS_RESTRICTED"}:
+                    if exc.code in {
+                        "SHORT_URL_ACCESS_RESTRICTED",
+                        "UPSTREAM_ACCESS_RESTRICTED",
+                        "UPSTREAM_REQUEST_BLOCKED",
+                    }:
                         report.stopped = True
                         break
                     continue
