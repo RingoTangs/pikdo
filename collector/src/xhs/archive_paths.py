@@ -6,6 +6,7 @@ from pathlib import Path
 COLLECTOR_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = COLLECTOR_ROOT / "examples"
 MARKER = ".pikdo-example-archive"
+PROBE_MARKER = ".pikdo-browser-probe"
 MARKER_BODY = b"pikdo-example-archive-v1\n"
 MANIFEST = "manifest.json"
 JOURNAL = ".collect-examples.pending.json"
@@ -27,3 +28,12 @@ def generated_file(path: Path) -> bool:
     return generated_directory(path.parent) or (
         archive_root(path.parent) and path.name in {MANIFEST, JOURNAL, LOCK, MARKER}
     )
+
+
+def probe_directory(path: Path) -> bool:
+    marker = path / PROBE_MARKER
+    return marker.is_file() and not marker.is_symlink()
+
+
+def probe_file(path: Path) -> bool:
+    return probe_directory(path.parent)

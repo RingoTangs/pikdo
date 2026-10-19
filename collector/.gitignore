@@ -10,3 +10,6 @@ dist
 /examples/manifest.json
 /examples/.pikdo-example-archive
 /examples/.collect-examples*
+
+# Browser probe responses may contain upstream share context and signatures.
+/.browser-probe/

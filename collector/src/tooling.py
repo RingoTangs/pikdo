@@ -7,7 +7,7 @@ from pathlib import Path
 
 import simplejson
 
-from xhs.archive_paths import generated_directory, generated_file
+from xhs.archive_paths import generated_directory, generated_file, probe_directory, probe_file
 
 COLLECTOR_ROOT = Path(__file__).resolve().parents[1]
 RUFF_CONFIG = COLLECTOR_ROOT / "pyproject.toml"
@@ -33,6 +33,7 @@ def discover_files(root: Path) -> dict[str, list[Path]]:
             and not name.endswith((".egg-info", ".dist-info"))
             and not (Path(current) / name).is_symlink()
             and not generated_directory(Path(current) / name)
+            and not probe_directory(Path(current) / name)
         )
         for name in sorted(names):
             path = Path(current) / name
@@ -41,6 +42,7 @@ def discover_files(root: Path) -> dict[str, list[Path]]:
                 and not path.is_symlink()
                 and path.is_file()
                 and not generated_file(path)
+                and not probe_file(path)
             ):
                 files[path.suffix].append(path)
     return files
@@ -57,7 +59,7 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
 
 def format_json(path: Path, *, check: bool) -> bool:
     """Preserve JSON types, decimal precision, and ordering. Never rewrite invalid input."""
-    if generated_file(path):
+    if generated_file(path) or probe_file(path):
         return True
     try:
         original = path.read_bytes().decode("utf-8")

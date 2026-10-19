@@ -505,3 +505,32 @@ CLI 遇到这些错误也会停止批次，不重试或探测恢复。
 先停止真实采集并人工检查上游访问条件；本功能不自动恢复，也没有重置接口。
 重启服务（重新创建客户端）只清除本地阻断，不代表上游已经恢复。
 多进程部署的状态彼此独立，其他进程不会共享本地阻断。
+
+## Phase 1：浏览器单商品验证
+
+新增独立 `BrowserProductCollector` 与 `browser-probe`，监听页面正常导航发出的商品详情响应，不主动调用详情接口。
+现有生产 API、HTTPX 和 `collect-examples` 行为不变；Phase 1 不写正式商品归档。
+
+```bash
+uv sync
+uv run playwright install chromium
+uv run browser-probe --help
+uv run browser-probe --input "https://xhslink.com/m/4tQFfvENODH"
+uv run browser-probe --input "https://xhslink.com/m/4tQFfvENODH" \
+  --headed --channel chrome --output .browser-probe
+```
+
+支持分享文案、短链、官方 H5 商品链接和纯商品 ID；纯 ID 没有原始分享上下文。
+默认导航 30 秒、商品响应 15 秒，`--timeout` 可分别覆盖两个阶段的上限。
+只有成功通过 JSON、业务状态和商品身份验证后，可选输出目录才写入来自 `response.body()` 的原始 `response.json` 字节。
+`.browser-probe/` 已被 Git 忽略；其他仓库内输出目录必须先加入忽略规则。禁止写入 examples 或正式归档。
+CLI 输出安全状态和结果码，不打印分享 URL 或凭据。遇到登录、验证码和访问限制停止，不自动重试。
+
+```bash
+uv run test -v
+# 可选：真实 Chromium，仅访问本机模拟站点
+PIKDO_LOCAL_BROWSER_TESTS=1 uv run test tests/test_browser_local.py -v
+```
+
+离线模拟测试、本机浏览器验证与真实小红书采集是三种独立结果；不能互相替代。
+安装、错误码、原始字节边界和真实手动验证方法见 [Playwright 命令与调试说明](../docs/2.playwright-commands.md)。
