@@ -242,14 +242,19 @@ def test_unknown_browser_error_does_not_echo_code_or_message():
     assert "SECRET" not in response.text
 
 
-def test_only_two_business_api_paths_and_current_models():
+def test_only_three_business_api_paths_and_current_models():
     service = FakeCollectionService()
     application = offline_app(service=service)
     with TestClient(application) as client:
         spec = client.get("/openapi.json").json()
         assert spec["info"]["version"] == VERSION
-        assert set(spec["paths"]) == {"/health", COLLECT_PATH}
+        assert set(spec["paths"]) == {"/health", "/ready", COLLECT_PATH}
         assert set(spec["paths"]["/health"]) == {"get"}
+        assert set(spec["paths"]["/ready"]) == {"get"}
+        for status in ("200", "503"):
+            assert spec["paths"]["/ready"]["get"]["responses"][status]["content"][
+                "application/json"
+            ]["schema"] == {"$ref": "#/components/schemas/ReadinessResponse"}
         assert set(spec["paths"][COLLECT_PATH]) == {"post"}
         operation = spec["paths"][COLLECT_PATH]["post"]
         assert operation["requestBody"]["content"]["application/json"]["schema"] == {
@@ -310,6 +315,15 @@ def test_461_plus_cleanup_failure_returns_safe_503_and_blocks_followups(caplog):
         assert client.get("/health").json() == {"status": "ok"}
         assert len(pw.browser.contexts) == 1 and pw.browser.close_calls == 1
         assert manager.state == "restricted"
+        ready = client.get("/ready")
+        assert ready.status_code == 503
+        assert ready.json() == {
+            "status": "not_ready",
+            "manager_state": "restricted",
+            "reason": "access_restricted",
+        }
+        assert ready.headers["cache-control"] == "no-store"
+        assert not manager.readiness_snapshot().resource_healthy
     assert pw.stopped and "SECRET" not in caplog.text
 
 
@@ -329,3 +343,184 @@ def test_upstream_diagnostic_never_changes_public_error_shape(caplog):
         "message": BROWSER_HTTP_ERRORS["BROWSER_ACCESS_RESTRICTED"][1],
     }
     assert "SECRET" not in response.text + caplog.text
+
+
+@pytest.mark.parametrize(
+    "state,ready,healthy,connected,reason",
+    [
+        ("new", False, False, False, "not_started"),
+        ("starting", False, True, False, "starting"),
+        ("ready", True, True, True, None),
+        ("ready", False, False, True, "resource_unhealthy"),
+        ("ready", False, True, False, "browser_disconnected"),
+        ("restricted", False, True, True, "access_restricted"),
+        ("restricted", False, False, False, "access_restricted"),
+        ("unavailable", False, False, False, "resource_unhealthy"),
+        ("unavailable", False, True, False, "browser_unavailable"),
+        ("stopping", False, True, True, "stopping"),
+        ("stopped", False, True, False, "stopped"),
+        ("unknown", False, True, True, "browser_unavailable"),
+    ],
+)
+def test_ready_contract_and_health_independence(state, ready, healthy, connected, reason, caplog):
+    from xhs.browser import ReadinessSnapshot
+
+    caplog.set_level("DEBUG", logger="xhs.browser")
+    service = FakeCollectionService(
+        readiness=ReadinessSnapshot(state, ready, healthy, connected, reason)
+    )
+    snapshot = service.readiness
+    with TestClient(offline_app(service=service)) as client:
+        for _ in range(3):
+            response = client.get("/ready")
+            assert response.status_code == (200 if ready else 503)
+            assert response.json() == {
+                "status": "ready" if ready else "not_ready",
+                "manager_state": state,
+                "reason": reason,
+            }
+            assert response.headers["cache-control"] == "no-store"
+            assert client.get("/health").status_code == 200
+            assert client.get("/health").json() == {"status": "ok"}
+        assert service.readiness is snapshot and service.calls == []
+        assert service.started and not service.stopped
+    assert service.stopped
+    assert not any(record.name.startswith("xhs.browser") for record in caplog.records)
+
+
+def test_ready_without_lifespan_does_not_create_or_start_service():
+    service = FakeCollectionService()
+    application = offline_app(service=service)
+    # Omitting the context manager deliberately bypasses lifespan.
+    client = TestClient(application)
+    try:
+        response = client.get("/ready")
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "not_ready",
+            "manager_state": "new",
+            "reason": "not_started",
+        }
+        assert response.headers["cache-control"] == "no-store"
+        assert client.get("/health").json() == {"status": "ok"}
+        assert not hasattr(application.state, "browser_manager")
+        assert not service.started and not service.stopped and service.calls == []
+    finally:
+        client.close()
+
+
+def test_ready_provider_exception_is_safe_and_does_not_affect_health(caplog):
+    class FailedSnapshotService(FakeCollectionService):
+        def readiness_snapshot(self):
+            raise RuntimeError("Cookie=SECRET xsec_token=SECRET")
+
+    service = FailedSnapshotService()
+    with TestClient(offline_app(service=service)) as client:
+        response = client.get("/ready")
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "not_ready",
+            "manager_state": "unavailable",
+            "reason": "browser_unavailable",
+        }
+        assert response.headers["cache-control"] == "no-store"
+        assert client.get("/health").json() == {"status": "ok"}
+    assert "SECRET" not in response.text + caplog.text and service.calls == []
+
+
+def test_fake_readiness_follows_start_stop():
+    service = FakeCollectionService()
+    assert service.readiness_snapshot().reason == "not_started"
+    with TestClient(offline_app(service=service)) as client:
+        assert client.get("/ready").json() == {
+            "status": "ready",
+            "manager_state": "ready",
+            "reason": None,
+        }
+    assert service.readiness_snapshot().reason == "stopped"
+
+
+def test_ready_remains_200_during_actual_manager_collection_and_queue():
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from test_browser_manager import build
+
+    manager, pw = build(queue_timeout=3, navigation_timeout=3)
+    pw.browser.gate = asyncio.Event()
+    with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(client.post, COLLECT_PATH, json={"input": ITEM_ID})
+            context = client.portal.call(pw.browser.created.get)
+            client.portal.call(context.page.entered.wait)
+            second = pool.submit(client.post, COLLECT_PATH, json={"input": ITEM_ID})
+
+            async def queued():
+                async with asyncio.timeout(1):
+                    while len(manager._workers) != 2:
+                        await asyncio.sleep(0)
+
+            try:
+                client.portal.call(queued)
+                for _ in range(3):
+                    response = client.get("/ready")
+                    assert response.status_code == 200
+                    assert response.json() == {
+                        "status": "ready",
+                        "manager_state": "ready",
+                        "reason": None,
+                    }
+                    assert response.headers["cache-control"] == "no-store"
+                assert pw.launch_calls == len(pw.browser.contexts) == 1
+                assert manager._semaphore._value == 0
+            finally:
+                client.portal.call(pw.browser.gate.set)
+            assert (
+                first.result(timeout=3).status_code == second.result(timeout=3).status_code == 200
+            )
+    assert pw.stopped
+
+
+def test_invalid_snapshot_values_fail_closed_without_sensitive_output(caplog):
+    from xhs.browser import ReadinessSnapshot
+
+    service = FakeCollectionService(
+        readiness=ReadinessSnapshot("Cookie=SECRET", True, True, True, "SECRET")
+    )
+    with TestClient(offline_app(service=service)) as client:
+        response = client.get("/ready")
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "not_ready",
+            "manager_state": "unavailable",
+            "reason": "browser_unavailable",
+        }
+        assert response.headers["cache-control"] == "no-store"
+    assert "SECRET" not in response.text + caplog.text
+
+
+@pytest.mark.parametrize(
+    "state,ready,healthy,connected,reason",
+    [
+        ("ready", True, False, True, None),
+        ("restricted", True, True, True, "access_restricted"),
+        ("ready", False, True, True, None),
+    ],
+)
+def test_inconsistent_provider_snapshots_cannot_report_ready(
+    state, ready, healthy, connected, reason
+):
+    from xhs.browser import ReadinessSnapshot
+
+    service = FakeCollectionService(
+        readiness=ReadinessSnapshot(state, ready, healthy, connected, reason)
+    )
+    with TestClient(offline_app(service=service)) as client:
+        response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "manager_state": "unavailable",
+        "reason": "browser_unavailable",
+    }
+    assert response.headers["cache-control"] == "no-store"

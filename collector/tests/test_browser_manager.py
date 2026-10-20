@@ -754,3 +754,127 @@ async def test_runtime_state_error_preserves_existing_upstream_diagnostic():
     assert error.value.upstream_diagnostic.capture_status == "read_error"
     assert manager.state == "unavailable" and context.closed
     await manager.stop()
+
+
+@pytest.mark.parametrize(
+    "state,healthy,connection,reason",
+    [
+        ("new", True, None, "not_started"),
+        ("starting", True, None, "starting"),
+        ("ready", True, True, None),
+        ("ready", False, True, "resource_unhealthy"),
+        ("ready", True, None, "browser_disconnected"),
+        ("ready", True, False, "browser_disconnected"),
+        ("ready", True, "error", "browser_disconnected"),
+        ("ready", False, False, "resource_unhealthy"),
+        ("restricted", True, True, "access_restricted"),
+        ("restricted", False, False, "access_restricted"),
+        ("unavailable", False, False, "resource_unhealthy"),
+        ("unavailable", True, True, "browser_unavailable"),
+        ("stopping", True, True, "stopping"),
+        ("stopped", True, True, "stopped"),
+        ("SECRET unknown state", True, True, "browser_unavailable"),
+    ],
+)
+def test_readiness_snapshot_mapping_and_read_only_behavior(
+    state, healthy, connection, reason, caplog
+):
+    caplog.set_level("DEBUG", logger="xhs.browser")
+    manager, pw = build()
+    manager._state = state
+    manager._resource_healthy = healthy
+    manager._browser = pw.browser if connection is not None else None
+    pw.browser.connected = connection
+
+    def error():
+        raise PlaywrightError("Cookie=SECRET https://example.test/?token=SECRET")
+
+    if connection == "error":
+        pw.browser.is_connected = error
+    original = (
+        manager._state,
+        manager._resource_healthy,
+        manager._browser,
+        manager._semaphore._value,
+        tuple(manager._workers),
+        tuple(manager.cleanup.failures),
+    )
+    for _ in range(3):
+        snapshot = manager.readiness_snapshot()
+        assert snapshot.ready is (reason is None)
+        assert snapshot.reason == reason
+        assert snapshot.state == ("unknown" if "SECRET" in state else state)
+        assert snapshot.resource_healthy is healthy
+        assert snapshot.browser_connected is (connection is True)
+        assert "SECRET" not in repr(snapshot)
+    assert original == (
+        manager._state,
+        manager._resource_healthy,
+        manager._browser,
+        manager._semaphore._value,
+        tuple(manager._workers),
+        tuple(manager.cleanup.failures),
+    )
+    assert not pw.started and pw.launch_calls == pw.browser.close_calls == 0
+    assert pw.browser.contexts == [] and manager._close_task is None
+    assert caplog.records == []
+
+
+def test_readiness_snapshot_is_immutable_and_contains_only_values():
+    from dataclasses import FrozenInstanceError, fields
+
+    manager, _ = build()
+    snapshot = manager.readiness_snapshot()
+    with pytest.raises(FrozenInstanceError):
+        snapshot.ready = True
+    assert not hasattr(snapshot, "__dict__")
+    assert {field.name for field in fields(snapshot)} == {
+        "state",
+        "ready",
+        "resource_healthy",
+        "browser_connected",
+        "reason",
+    }
+
+
+@scenario
+async def test_snapshot_reads_lifecycle_without_transitions():
+    manager, pw = build()
+    assert manager.readiness_snapshot().reason == "not_started"
+    await manager.start()
+    assert manager.readiness_snapshot().ready
+    # A disconnected Browser must fail closed even before the callback is delivered.
+    pw.browser.connected = False
+    assert manager.readiness_snapshot().reason == "browser_disconnected"
+    assert manager.state == "ready" and manager._resource_healthy
+    await manager.stop()
+    assert manager.readiness_snapshot().reason == "stopped"
+
+
+@scenario
+async def test_active_and_queued_collections_do_not_affect_readiness():
+    manager, pw = build(queue_timeout=1)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    active = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    await context.page.entered.wait()
+    queued = asyncio.create_task(manager.collect(ID))
+    await asyncio.sleep(0)
+    before = (len(manager._workers), manager._semaphore._value, len(pw.browser.contexts))
+    for _ in range(3):
+        assert manager.readiness_snapshot().ready
+    assert before == (len(manager._workers), manager._semaphore._value, len(pw.browser.contexts))
+    assert len(pw.browser.contexts) == 1 and pw.launch_calls == 1
+    pw.browser.gate.set()
+    await asyncio.gather(active, queued)
+    await manager.stop()
+
+
+@pytest.mark.parametrize("state", [None, [], {"SECRET": True}])
+def test_unknown_state_types_fail_closed_without_mutation(state):
+    manager, _ = build()
+    manager._state = state
+    snapshot = manager.readiness_snapshot()
+    assert snapshot.state == "unknown" and snapshot.reason == "browser_unavailable"
+    assert not snapshot.ready and manager._state is state

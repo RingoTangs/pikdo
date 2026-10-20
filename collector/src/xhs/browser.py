@@ -49,10 +49,20 @@ class BrowserConfig:
                 raise ValueError("timeouts must be finite positive seconds")
 
 
+@dataclass(frozen=True, slots=True)
+class ReadinessSnapshot:
+    state: str
+    ready: bool
+    resource_healthy: bool
+    browser_connected: bool
+    reason: str | None
+
+
 class ProductCollectionService(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     async def collect(self, raw: str) -> BrowserProductResult: ...
+    def readiness_snapshot(self) -> ReadinessSnapshot: ...
 
 
 class BrowserManager:
@@ -100,6 +110,40 @@ class BrowserManager:
     @property
     def state(self) -> str:
         return self._state
+
+    def readiness_snapshot(self) -> ReadinessSnapshot:
+        """Observe process-local state without transitioning it or allocating resources."""
+        state = self._state if isinstance(self._state, str) else "unknown"
+        healthy = self._resource_healthy is True
+        browser = self._browser
+        try:
+            connected = browser is not None and browser.is_connected() is True
+        except Exception:
+            connected = False
+        reasons = {
+            "new": "not_started",
+            "starting": "starting",
+            "restricted": "access_restricted",
+            "stopping": "stopping",
+            "stopped": "stopped",
+        }
+        if state == "ready":
+            reason = (
+                "resource_unhealthy"
+                if not healthy
+                else "browser_disconnected"
+                if not connected
+                else None
+            )
+        elif state == "unavailable":
+            reason = "resource_unhealthy" if not healthy else "browser_unavailable"
+        elif state in reasons:
+            reason = reasons[state]
+        else:
+            state, reason = "unknown", "browser_unavailable"
+        return ReadinessSnapshot(
+            state, state == "ready" and healthy and connected, healthy, connected, reason
+        )
 
     async def start(self) -> None:
         async with self._lifecycle_lock:

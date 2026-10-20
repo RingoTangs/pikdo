@@ -8,13 +8,14 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from xhs.browser import BrowserConfig, BrowserManager, ProductCollectionService
+from xhs.browser import BrowserConfig, BrowserManager, ProductCollectionService, ReadinessSnapshot
 from xhs.browser_collector import BrowserCollectionError, navigation_input
 from xhs.errors import BROWSER_HTTP_ERRORS, InputError
 from xhs.schemas import (
     CollectErrorResponse,
     CollectRequest,
     Product,
+    ReadinessResponse,
 )
 
 COLLECT_PATH = "/api/v1/xhs/products/collect"
@@ -88,6 +89,47 @@ def create_app(
     )
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get(
+        "/ready",
+        response_model=ReadinessResponse,
+        tags=["健康检查"],
+        summary="检查实例是否就绪",
+        description="只观察本地 BrowserManager 状态及 Browser 连接，不访问小红书，不执行采集或恢复受限状态。采集和排队期间仍可就绪，不保证上游请求成功。",
+        responses={
+            503: {"model": ReadinessResponse, "description": "实例尚未具备接收采集请求的条件。"}
+        },
+    )
+    async def ready(request: Request) -> JSONResponse:
+        manager = getattr(request.app.state, "browser_manager", None)
+        try:
+            snapshot = (
+                manager.readiness_snapshot()
+                if manager is not None
+                else ReadinessSnapshot("new", False, False, False, "not_started")
+            )
+            expected_ready = (
+                snapshot.state == "ready"
+                and snapshot.resource_healthy is True
+                and snapshot.browser_connected is True
+            )
+            if snapshot.ready is not expected_ready:
+                raise ValueError("Inconsistent readiness snapshot")
+            body = ReadinessResponse(
+                status="ready" if snapshot.ready else "not_ready",
+                manager_state=snapshot.state,
+                reason=snapshot.reason,
+            )
+        except Exception:
+            # Fail closed without logging arbitrary provider exceptions or snapshot values.
+            body = ReadinessResponse(
+                status="not_ready", manager_state="unavailable", reason="browser_unavailable"
+            )
+        return JSONResponse(
+            status_code=200 if body.status == "ready" else 503,
+            content=body.model_dump(),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.post(
         COLLECT_PATH,

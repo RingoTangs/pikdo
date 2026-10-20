@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from xhs.browser import ReadinessSnapshot
+
 ITEM_ID = "6ab10b35d528ea0015dd1b7e"
 
 
@@ -17,7 +19,10 @@ def payload():
 class FakeCollectionService:
     """Explicit API dependency: parsing is real, browser/network execution is fake."""
 
-    def __init__(self, *, payload=None, body: bytes | None = None):
+    def __init__(
+        self, *, payload=None, body: bytes | None = None, readiness: ReadinessSnapshot | None = None
+    ):
+        self.readiness = readiness
         self.payload = payload
         self.body = body
         self.error = None
@@ -30,6 +35,15 @@ class FakeCollectionService:
 
     async def stop(self):
         self.stopped = True
+
+    def readiness_snapshot(self) -> ReadinessSnapshot:
+        if self.readiness is not None:
+            return self.readiness
+        if self.stopped:
+            return ReadinessSnapshot("stopped", False, False, False, "stopped")
+        if self.started:
+            return ReadinessSnapshot("ready", True, True, True, None)
+        return ReadinessSnapshot("new", False, False, False, "not_started")
 
     async def collect(self, raw):
         from xhs.browser_collector import BrowserProductResult, navigation_input, parse_browser_body

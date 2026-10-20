@@ -28,15 +28,17 @@ uv run dev
 生产环境必须安装匹配版本的 Chromium 二进制。系统 Chrome 可通过 BrowserConfig(channel="chrome") 使用。
 HTTPX 仅保留在开发依赖中供 FastAPI TestClient 使用；生产源码不导入 HTTPX 或 requests。
 
-## 两个业务 API
+## 三个 API
 
 | 方法 | 路径                           | 行为                                             |
 | ---- | ------------------------------ | ------------------------------------------------ |
 | GET  | `/health`                      | 本地存活检查，返回 `{"status":"ok"}`，不访问上游 |
+| GET  | `/ready`                       | 本地采集就绪检查，返回 200 或 503，不访问上游    |
 | POST | `/api/v1/xhs/products/collect` | 从单条分享输入采集并返回 Product                 |
 
 ```bash
 curl http://localhost:8000/health
+curl -i http://localhost:8000/ready
 curl -X POST http://localhost:8000/api/v1/xhs/products/collect \
   -H 'Content-Type: application/json' \
   -d '{"input":"https://xhslink.com/m/4tQFfvENODH"}'
@@ -62,6 +64,48 @@ Input Parser 只做本地文本和 URL 校验，保留 HTML 实体、有限转�
 API 只返回标准化 Product，不保存或返回原始响应、Cookie、签名或完整敏感跳转 URL。
 
 旧 POST resolve API 和 collect-examples CLI 已移除，没有兼容入口。历史本地数据不会自动删除或恢复。
+
+## Phase 3A-2：Liveness 与 Readiness
+
+`GET /health` 始终返回 HTTP 200、`{"status":"ok"}`，只表示 HTTP 服务存活。
+`GET /ready` 只观察当前进程的 BrowserManager 状态、资源健康标记和 Browser 本地连接状态，不请求小红书。
+所有 /ready 响应都有 `Cache-Control: no-store`，不会创建 Browser、Context、任务或执行采集，也不修改状态或输出探测日志。
+
+就绪时为 HTTP 200：
+
+```json
+{"status":"ready","manager_state":"ready","reason":null}
+```
+
+未就绪时为 HTTP 503，使用相同结构，例如：
+
+```json
+{"status":"not_ready","manager_state":"restricted","reason":"access_restricted"}
+```
+
+| Manager 条件                              | reason                 | HTTP |
+| ----------------------------------------- | ---------------------- | ---- |
+| new / starting                            | not_started / starting | 503  |
+| ready、资源健康、Browser 已连接           | null                   | 200  |
+| ready、资源不健康                         | resource_unhealthy     | 503  |
+| ready、Browser 缺失、已断开或连接检查异常 | browser_disconnected   | 503  |
+| restricted，包括同时资源不健康            | access_restricted      | 503  |
+| unavailable、资源不健康                   | resource_unhealthy     | 503  |
+| unavailable、资源健康                     | browser_unavailable    | 503  |
+| stopping / stopped                        | stopping / stopped     | 503  |
+| 未知状态（公开为 unknown）                | browser_unavailable    | 503  |
+
+ReadinessSnapshot 是不可变、纯值的内部快照，额外保留 resource_healthy 和 browser_connected，公共接口不公开这些内部字段。
+Context 清理失败会沿用现有机制停用资源，从而 Not Ready；探测不会清除 cleanup failure 或上游诊断。
+即使断开事件尚未处理，Browser.is_connected() 已为 false 时也不会报告 Ready；探测本身不执行状态转移。
+有采集执行或请求排队时仍可 Ready，不使用 Semaphore 或队列繁忙程度判断。Ready 不代表上游网络可达或采集一定成功。
+
+Lifespan 初始化失败仍阻止服务启动，此时不能声称 HTTP /ready 已返回 503。
+测试绕过 Lifespan、尚未初始化 Manager 时，/ready 返回 503、new/not_started；快照提供器意外失败时安全返回 unavailable/browser_unavailable。
+当前状态只属于单 Worker、单进程；多进程之间不共享 restricted 或资源状态。
+未来 Docker/Kubernetes 可将 /health 用作存活探测、/ready 用作就绪探测，未就绪实例停止接收流量。
+Readiness 不能用于自动恢复风控：不得把 restricted 导致的 503 作为自动重启浏览器、清除限制后继续请求上游的机制。
+本阶段不新增容器配置、后台巡检、指标、恢复任务或依赖。
 
 ## BrowserManager 与安全边界
 
@@ -401,7 +445,7 @@ PIKDO_LOCAL_BROWSER_TESTS=1 uv run test tests/test_browser_local.py -v
 
 ## 模块与后续范围
 
-- `app.py`：两个业务 API、OpenAPI 和 Lifespan。
+- `app.py`：三个 API、OpenAPI 和 Lifespan。
 - `xhs/input_parser.py`：纯文本解析与可信 URL 校验。
 - `xhs/browser.py`、`browser_collector.py`：浏览器生命周期和单次页面采集。
 - `xhs/product_decoder.py`、`parser.py`、`domains.py`、`schemas.py`、`values.py`：解码、业务映射、模型和输出过滤。

@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, PlainSerializer
 
@@ -244,3 +244,23 @@ class CollectRequest(Model):
 class CollectErrorResponse(Model):
     code: str
     message: str
+
+
+class ReadinessResponse(Model):
+    status: Literal["ready", "not_ready"]
+    manager_state: Literal[
+        "new", "starting", "ready", "restricted", "unavailable", "stopping", "stopped", "unknown"
+    ]
+    reason: (
+        Literal[
+            "not_started",
+            "starting",
+            "access_restricted",
+            "resource_unhealthy",
+            "browser_disconnected",
+            "browser_unavailable",
+            "stopping",
+            "stopped",
+        ]
+        | None
+    )

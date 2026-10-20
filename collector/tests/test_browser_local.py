@@ -147,6 +147,13 @@ def test_fastapi_shared_browser_and_real_context_storage_isolation(local_site, m
 
     with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
         browser = manager._browser
+        before = list(received)
+        for _ in range(3):
+            response = client.get("/ready")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ready", "manager_state": "ready", "reason": None}
+            assert response.headers["cache-control"] == "no-store"
+        assert received == before and browser.contexts == []
         first = client.post("/api/v1/xhs/products/collect", json={"input": short})
         second = client.post("/api/v1/xhs/products/collect", json={"input": ID})
         assert first.status_code == second.status_code == 200
@@ -171,6 +178,16 @@ def test_real_chromium_461_restriction_closes_context_and_latches_manager(local_
         assert response.json()["code"] == "BROWSER_ACCESS_RESTRICTED"
         assert manager.state == "restricted" and browser.contexts == []
         before = list(received)
+        for _ in range(3):
+            ready = client.get("/ready")
+            assert ready.status_code == 503
+            assert ready.json() == {
+                "status": "not_ready",
+                "manager_state": "restricted",
+                "reason": "access_restricted",
+            }
+            assert ready.headers["cache-control"] == "no-store"
+        assert received == before and browser.contexts == []
         followup = client.post("/api/v1/xhs/products/collect", json={"input": ID})
         assert followup.status_code == 503 and received == before
         assert client.get("/health").json() == {"status": "ok"}
