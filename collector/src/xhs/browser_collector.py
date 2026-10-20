@@ -34,6 +34,14 @@ from xhs.input_parser import (
 )
 from xhs.product_decoder import decode_product_body
 from xhs.schemas import Product
+from xhs.upstream_diagnostics import (
+    ERROR_CAPTURE_TIMEOUT,
+    MAX_ERROR_BODY_BYTES,
+    CaptureStatus,
+    Source,
+    UpstreamDiagnostic,
+    extract_upstream_error,
+)
 
 DETAIL_PATH = "/api/store/jpd/edith/detail/h5/toc"
 RESTRICTED_STATUS = {401, 403, 429, 461}
@@ -45,10 +53,13 @@ RESTRICTION_TEXT = re.compile(
 class BrowserCollectionError(Exception):
     """Only fixed, safe diagnostics; never propagate browser exception text."""
 
-    def __init__(self, code: str, message: str):
+    def __init__(
+        self, code: str, message: str, *, upstream_diagnostic: UpstreamDiagnostic | None = None
+    ):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.upstream_diagnostic = upstream_diagnostic
 
 
 @dataclass(frozen=True)
@@ -151,6 +162,8 @@ class BrowserProductCollector:
         response_timeout: float = 15,
         status: ProbeStatus | None = None,
         cleanup_timeout: float = 5.0,
+        error_capture_timeout: float = ERROR_CAPTURE_TIMEOUT,
+        max_error_body_bytes: int = MAX_ERROR_BODY_BYTES,
         on_access_restricted: Callable[[], None] | None = None,
         on_cleanup_failure: Callable[[CleanupFailure], None] | None = None,
     ) -> None:
@@ -158,9 +171,13 @@ class BrowserProductCollector:
             raise ValueError("channel must be chrome or None")
         if any(
             not math.isfinite(v) or v <= 0
-            for v in (navigation_timeout, response_timeout, cleanup_timeout)
+            for v in (navigation_timeout, response_timeout, cleanup_timeout, error_capture_timeout)
         ):
             raise ValueError("timeouts must be finite positive seconds")
+        if type(max_error_body_bytes) is not int or max_error_body_bytes < 1:
+            raise ValueError("max_error_body_bytes must be a positive integer")
+        self.error_capture_timeout = error_capture_timeout
+        self.max_error_body_bytes = max_error_body_bytes
         self.headless = headless
         self.channel = channel
         self.navigation_timeout = navigation_timeout
@@ -323,6 +340,87 @@ class BrowserProductCollector:
         if any(not task.done() for task in self.cleanup.pending):
             await self.cleanup.run("watchers_join", self.cleanup.join())
 
+    def _diagnostic(
+        self,
+        response: Response,
+        source: Source,
+        body: bytes | None = None,
+        capture_status: CaptureStatus = "not_attempted",
+    ) -> UpstreamDiagnostic:
+        return extract_upstream_error(
+            body,
+            response.status,
+            source=source,
+            collection_id=self.collection_id,
+            capture_status=capture_status,
+            max_body_bytes=self.max_error_body_bytes,
+        )
+
+    def _log_upstream_detected(self, response: Response, source: Source, code: str) -> None:
+        fields = self._diagnostic(response, source).safe_metadata()
+        event(
+            "browser.upstream.error_detected",
+            warning=True,
+            collection_id=fields["collection_id"],
+            source=fields["source"],
+            http_status=fields["http_status"],
+            collector_error=code if code in BROWSER_HTTP_ERRORS else "BROWSER_INVALID_RESPONSE",
+        )
+
+    def _log_diagnostic(self, diagnostic: UpstreamDiagnostic) -> None:
+        fields = diagnostic.safe_metadata()
+        event(
+            "browser.upstream.capture_completed"
+            if diagnostic.capture_status in {"captured", "empty"}
+            else "browser.upstream.capture_failed",
+            warning=diagnostic.capture_status not in {"captured", "empty"},
+            **fields,
+        )
+
+    async def _capture_error(
+        self, response: Response, source: Source, closed: Callable[[], bool]
+    ) -> UpstreamDiagnostic:
+        if closed():
+            return self._diagnostic(response, source, capture_status="unavailable")
+        try:
+            headers = response.headers
+        except PlaywrightError:
+            return self._diagnostic(response, source, capture_status="read_error")
+        length = headers.get("content-length")
+        if (
+            not isinstance(length, str)
+            or re.fullmatch(r"[0-9]{1,18}", length) is None
+            or headers.get("content-encoding", "identity").strip().lower() not in {"", "identity"}
+            or headers.get("transfer-encoding", "identity").strip().lower() not in {"", "identity"}
+        ):
+            return self._diagnostic(response, source, capture_status="skipped_unknown_length")
+        if int(length) > self.max_error_body_bytes:
+            return self._diagnostic(response, source, capture_status="too_large")
+        event(
+            "browser.upstream.capture_started",
+            collection_id=self.collection_id,
+            source=source,
+            http_status=response.status,
+        )
+        task = self.cleanup.own(asyncio.create_task(response.body()))
+        try:
+            done, _ = await asyncio.wait({task}, timeout=self.error_capture_timeout)
+            if not done:
+                task.cancel()
+                return self._diagnostic(response, source, capture_status="timeout")
+            if task.cancelled():
+                return self._diagnostic(response, source, capture_status="unavailable")
+            try:
+                body = task.result()
+            except Exception:
+                return self._diagnostic(
+                    response, source, capture_status="unavailable" if closed() else "read_error"
+                )
+            return self._diagnostic(response, source, body)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
     async def _collect_page(
         self, context: BrowserContext, page: Page, url: str, expected_id: str | None
     ) -> BrowserProductResult:
@@ -332,6 +430,13 @@ class BrowserProductCollector:
         tasks: set[asyncio.Task] = set()
         cdp: CDPSession | None = None
         on_paused = None
+        validated_item_id = None
+        error_response: tuple[Source, Response] | None = None
+        page_closed = False
+        body_attempted = False
+        body_status: CaptureStatus = "not_attempted"
+        received_body: bytes | None = None
+        product_valid = False
 
         def fail(code: str, message: str) -> None:
             if code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
@@ -358,11 +463,25 @@ class BrowserProductCollector:
                     task.cancel()
 
         def on_response(response: Response) -> None:
+            nonlocal error_response
             request = response.request
             is_main = request.is_navigation_request() and request.frame == page.main_frame
             candidate = response_item_id(response)
             if is_main:
                 self.status.navigation_http_status = response.status
+                if response.status >= 400:
+                    try:
+                        navigation_target(response.url)
+                    except BrowserCollectionError:
+                        pass
+                    else:
+                        error_response = error_response or ("main_response", response)
+            if candidate is not None and response.status >= 400:
+                # CDP validates the goods-detail path before the page can request its API.
+                if candidate == validated_item_id and (
+                    expected_id is None or candidate == expected_id
+                ):
+                    error_response = error_response or ("product_response", response)
             if (is_main or candidate is not None) and response.status in RESTRICTED_STATUS:
                 if candidate is not None:
                     self.status.http_status = response.status
@@ -391,6 +510,8 @@ class BrowserProductCollector:
                     fail(exc.code, exc.message)
 
         def on_close() -> None:
+            nonlocal page_closed
+            page_closed = True
             fail("BROWSER_PRODUCT_RESPONSE_MISSING", "商品响应完成前页面已关闭")
 
         async def watch_restriction() -> None:
@@ -420,9 +541,10 @@ class BrowserProductCollector:
             main_frame_id = tree["frameTree"]["frame"]["id"]
 
             async def paused(event: dict) -> None:
+                nonlocal validated_item_id
                 try:
                     if event["frameId"] == main_frame_id:
-                        navigation_target(event["request"]["url"])
+                        validated_item_id = navigation_target(event["request"]["url"]).item_id
                     await cdp.send("Fetch.continueRequest", {"requestId": event["requestId"]})
                 except BrowserCollectionError as exc:
                     fail(exc.code, exc.message)
@@ -479,17 +601,23 @@ class BrowserProductCollector:
                         if candidate != item_id:
                             continue
                         self.status.http_status = response.status
+                        error_response = ("product_response", response)
                         if not 200 <= response.status < 300:
                             raise BrowserCollectionError(
                                 "BROWSER_INVALID_RESPONSE", "商品响应 HTTP 状态异常"
                             )
                         try:
+                            body_attempted = True
+                            body_status = "timeout"
                             body = await guarded(response.body())
+                            received_body = body
                         except PlaywrightError as exc:
+                            body_status = "read_error"
                             raise BrowserCollectionError(
                                 "BROWSER_PRODUCT_RESPONSE_MISSING", "无法读取完整商品响应正文"
                             ) from exc
                         product = parse_browser_body(body, item_id)
+                        product_valid = True
                         # Recheck identity in case the page navigated while reading the body.
                         if navigation_target(page.url).item_id != item_id:
                             raise BrowserCollectionError(
@@ -512,6 +640,31 @@ class BrowserProductCollector:
             raise BrowserCollectionError(
                 "BROWSER_NAVIGATION_TIMEOUT", "初始化页面导航控制超时"
             ) from exc
+        except BrowserCollectionError as exc:
+            if exc.code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
+                self._on_access_restricted()
+            if error_response is not None and not product_valid:
+                source, response = error_response
+                if source == "product_response" and response_item_id(response) != validated_item_id:
+                    raise
+                self._log_upstream_detected(response, source, exc.code)
+                if received_body is not None:
+                    diagnostic = self._diagnostic(response, source, received_body)
+                elif body_attempted:
+                    diagnostic = self._diagnostic(response, source, capture_status=body_status)
+                else:
+                    try:
+                        diagnostic = await self._capture_error(
+                            response, source, lambda: page_closed
+                        )
+                    except asyncio.CancelledError:
+                        self._log_diagnostic(
+                            self._diagnostic(response, source, capture_status="unavailable")
+                        )
+                        raise
+                exc.upstream_diagnostic = diagnostic
+                self._log_diagnostic(diagnostic)
+            raise
         finally:
 
             async def close_watchers() -> None:

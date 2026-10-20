@@ -311,3 +311,21 @@ def test_461_plus_cleanup_failure_returns_safe_503_and_blocks_followups(caplog):
         assert len(pw.browser.contexts) == 1 and pw.browser.close_calls == 1
         assert manager.state == "restricted"
     assert pw.stopped and "SECRET" not in caplog.text
+
+
+def test_upstream_diagnostic_never_changes_public_error_shape(caplog):
+    from xhs.upstream_diagnostics import extract_upstream_error
+
+    service = FakeCollectionService()
+    diagnostic = extract_upstream_error(b'{"code":"SECRET","msg":"Cookie=SECRET"}', 461)
+    service.error = BrowserCollectionError(
+        "BROWSER_ACCESS_RESTRICTED", "safe", upstream_diagnostic=diagnostic
+    )
+    with TestClient(offline_app(service=service)) as client:
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "BROWSER_ACCESS_RESTRICTED",
+        "message": BROWSER_HTTP_ERRORS["BROWSER_ACCESS_RESTRICTED"][1],
+    }
+    assert "SECRET" not in response.text + caplog.text

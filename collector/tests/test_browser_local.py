@@ -22,6 +22,7 @@ pytestmark = pytest.mark.skipif(
 )
 ID = "6ab10b35d528ea0015dd1b7e"
 RAW = (Path(__file__).parents[1] / "examples/response.json").read_bytes()
+ERROR_RAW = b' { "success" : false, "error_code":123, "msg":"synthetic SECRET" }\n'
 
 
 @pytest.fixture
@@ -46,12 +47,13 @@ def local_site(monkeypatch):
                 self.send_header("Location", target)
                 self.end_headers()
             elif path == "/api":
-                self.send_response(
-                    int(parse_qs(urlsplit(self.path).query).get("status", ["200"])[0])
-                )
+                status = int(parse_qs(urlsplit(self.path).query).get("status", ["200"])[0])
+                body = RAW if status == 200 else ERROR_RAW
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(RAW)
+                self.wfile.write(body)
             else:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -173,3 +175,27 @@ def test_real_chromium_461_restriction_closes_context_and_latches_manager(local_
         assert followup.status_code == 503 and received == before
         assert client.get("/health").json() == {"status": "ok"}
     assert not browser.is_connected()
+
+
+def test_real_chromium_error_body_and_atomic_export_are_exact(local_site, tmp_path):
+    import hashlib
+    import json
+
+    from xhs.browser_probe import write_error_output
+
+    base, received = local_site
+    collector = BrowserProductCollector(navigation_timeout=10, response_timeout=5)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect(base + "/restricted"))
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    diagnostic = error.value.upstream_diagnostic
+    assert diagnostic.capture_status == "captured"
+    assert diagnostic.raw_body == ERROR_RAW and diagnostic.business_code == 123
+    assert diagnostic.business_message == "synthetic SECRET"
+    output = tmp_path / "probe"
+    write_error_output(output, diagnostic, error.value.code)
+    directory = output / f"error-{diagnostic.collection_id}"
+    assert (directory / "upstream-error.bin").read_bytes() == ERROR_RAW
+    metadata = json.loads((directory / "diagnostic.json").read_bytes())
+    assert metadata["body_sha256"] == hashlib.sha256(ERROR_RAW).hexdigest()
+    assert "SECRET" not in json.dumps(metadata)

@@ -29,13 +29,16 @@ RAW = (Path(__file__).parents[1] / "examples/response.json").read_bytes()
 
 
 class Response:
-    def __init__(self, body=RAW, *, item_id=ID, url=None, method="GET", status=200, frame=None):
+    def __init__(
+        self, body=RAW, *, item_id=ID, url=None, method="GET", status=200, frame=None, headers=None
+    ):
         self.url = url or f"{API}?item_id={item_id}"
         self.status = status
         self.request = SimpleNamespace(
             method=method, frame=frame, is_navigation_request=lambda: frame is not None
         )
         self.raw = body
+        self.headers = {"content-length": str(len(body))} if headers is None else headers
         self.body_calls = 0
         self.body_error = None
         self.body_wait = False
@@ -695,3 +698,222 @@ def test_finish_cleanup_keeps_repeated_cancellation_over_secondary_error():
         assert worker.done() and worker.exception() is not None
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("status", [403, 429, 461, 500])
+@pytest.mark.parametrize("body", [b' { "code":123,"msg":"Cookie=SECRET" }\n', b"HTML SECRET", b""])
+def test_http_error_evidence_is_captured_once_without_public_leak(browser, caplog, status, body):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="xhs.browser")
+    response = Response(body, status=status)
+    browser.page.responses = [response]
+    collector = BrowserProductCollector(error_capture_timeout=0.02)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == (
+        "BROWSER_INVALID_RESPONSE" if status == 500 else "BROWSER_ACCESS_RESTRICTED"
+    )
+    diagnostic = error.value.upstream_diagnostic
+    assert diagnostic.raw_body is body and diagnostic.http_status == status
+    assert diagnostic.source == "product_response"
+    assert diagnostic.capture_status == ("captured" if body else "empty")
+    assert response.body_calls == 1
+    assert "SECRET" not in str(error.value) + repr(error.value) + caplog.text
+    assert "body_sha256=" in caplog.text
+    assert browser.context.closed and not collector.cleanup.pending
+
+
+@pytest.mark.parametrize(
+    "headers,actual,expected",
+    [
+        ({}, b"unread", "skipped_unknown_length"),
+        ({"content-length": "-1"}, b"unread", "skipped_unknown_length"),
+        ({"content-length": "1, 2"}, b"unread", "skipped_unknown_length"),
+        ({"content-length": "6", "content-encoding": "gzip"}, b"unread", "skipped_unknown_length"),
+        (
+            {"content-length": "6", "transfer-encoding": "chunked"},
+            b"unread",
+            "skipped_unknown_length",
+        ),
+        ({"content-length": "100"}, b"unread", "too_large"),
+        ({"content-length": "1"}, b"actually over limit", "too_large"),
+    ],
+)
+def test_error_capture_length_policy_never_truncates(browser, headers, actual, expected):
+    response = Response(actual, status=461, headers=headers)
+    browser.page.responses = [response]
+    collector = BrowserProductCollector(max_error_body_bytes=8)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    diagnostic = error.value.upstream_diagnostic
+    assert diagnostic.capture_status == expected and diagnostic.raw_body is None
+    assert diagnostic.body_sha256 is None
+    assert response.body_calls == int(headers == {"content-length": "1"})
+
+
+@pytest.mark.parametrize(
+    "fault,expected", [("wait", "timeout"), ("error", "read_error"), ("closed", "unavailable")]
+)
+def test_error_capture_failure_preserves_restriction_and_cleans_tasks(browser, fault, expected):
+    response = Response(b"SECRET", status=461)
+    if fault == "wait":
+        response.body_wait = True
+    elif fault == "error":
+        response.body_error = PlaywrightError("SECRET response body")
+    else:
+        browser.page.close_early = True
+    browser.page.responses = [response]
+    collector = BrowserProductCollector(error_capture_timeout=0.01)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert error.value.upstream_diagnostic.capture_status == expected
+    assert error.value.upstream_diagnostic.raw_body is None
+    assert browser.context.closed and not collector.cleanup.pending
+
+
+@pytest.mark.parametrize(
+    "body,code",
+    [
+        (b' { "success" : false, "code":123, "msg":"error SECRET" }\n', "BROWSER_INVALID_RESPONSE"),
+        (
+            '{"success":false,"err_code":42,"message":"安全验证 SECRET"}'.encode(),
+            "BROWSER_ACCESS_RESTRICTED",
+        ),
+        (
+            '{"success":false,"error_code":9,"msg":"商品已下架"}'.encode(),
+            "BROWSER_PRODUCT_UNAVAILABLE",
+        ),
+        (b"invalid JSON SECRET", "BROWSER_INVALID_RESPONSE"),
+    ],
+)
+def test_business_error_preserves_already_read_body_without_length_header(browser, body, code):
+    response = Response(body, headers={})
+    browser.page.responses = [response]
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(BrowserProductCollector().collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == code
+    diagnostic = error.value.upstream_diagnostic
+    assert diagnostic.http_status == 200 and diagnostic.raw_body is body
+    assert diagnostic.capture_status == "captured" and response.body_calls == 1
+    assert "SECRET" not in str(error.value)
+
+
+@pytest.mark.parametrize("fault", ["detach", "context"])
+def test_error_evidence_survives_secondary_cleanup_failure(browser, fault):
+    body = b' { "code":123, "msg":"error" }\n'
+    browser.page.responses = [Response(body, status=461)]
+    if fault == "context":
+        browser.context.close_error = PlaywrightError("SECRET")
+    else:
+
+        async def blocked():
+            await asyncio.Event().wait()
+
+        browser.cdp.detach = blocked
+    collector = BrowserProductCollector(cleanup_timeout=0.01)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert error.value.upstream_diagnostic.raw_body == body
+    assert collector.cleanup.failures
+
+
+@pytest.mark.parametrize(
+    "wrong",
+    [Response(status=461, item_id=OTHER), Response(status=461, url="https://evil.test/api")],
+)
+def test_wrong_response_is_never_read_as_error_evidence(browser, wrong):
+    browser.page.responses = [wrong]
+    collector = BrowserProductCollector(response_timeout=0.01)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    assert error.value.upstream_diagnostic is None and wrong.body_calls == 0
+
+
+def test_cancellation_during_error_capture_reaps_the_body_task(browser):
+    async def exercise():
+        entered = asyncio.Event()
+        response = Response(b"SECRET", status=461)
+
+        async def body():
+            entered.set()
+            await asyncio.Event().wait()
+
+        response.body = body
+        browser.page.responses = [response]
+        collector = BrowserProductCollector(error_capture_timeout=0.1)
+        task = asyncio.create_task(collector.collect_with_browser(SHORT, browser.browser))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert browser.context.closed and not collector.cleanup.pending
+
+    asyncio.run(exercise())
+
+
+def test_cancel_resistant_diagnostic_task_is_reaped_after_context_close(browser):
+    async def exercise():
+        released = asyncio.Event()
+        response = Response(b"SECRET", status=461)
+        original_close = browser.context.close
+
+        async def body():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await released.wait()
+                raise PlaywrightError("SECRET closed")
+
+        async def close():
+            released.set()
+            await original_close()
+
+        response.body = body
+        browser.context.close = close
+        browser.page.responses = [response]
+        collector = BrowserProductCollector(error_capture_timeout=0.01)
+        with pytest.raises(BrowserCollectionError) as error:
+            await collector.collect_with_browser(SHORT, browser.browser)
+        assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+        assert error.value.upstream_diagnostic.capture_status == "timeout"
+        assert browser.context.closed and not collector.cleanup.pending
+
+    asyncio.run(exercise())
+
+
+def test_browser_page_closes_while_reading_error_preserves_unavailable_capture(browser):
+    response = Response(b"SECRET", status=461)
+
+    async def body():
+        browser.page.emit("close")
+        raise PlaywrightError("SECRET target closed")
+
+    response.body = body
+    browser.page.responses = [response]
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(BrowserProductCollector().collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert error.value.upstream_diagnostic.capture_status == "unavailable"
+
+
+def test_trusted_main_response_preserves_actual_http_error(browser):
+    body = b"non JSON main error"
+    browser.page.responses = [Response(body, status=461, frame=browser.page.main_frame, url=H5)]
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(BrowserProductCollector().collect_with_browser(SHORT, browser.browser))
+    assert error.value.upstream_diagnostic.source == "main_response"
+    assert error.value.upstream_diagnostic.raw_body == body
+
+
+@pytest.mark.parametrize("fault", ["navigation", "launch"])
+def test_no_upstream_diagnostic_without_an_actual_error_response(browser, fault):
+    if fault == "navigation":
+        browser.page.error = PlaywrightError("SECRET navigation")
+    else:
+        browser.error = PlaywrightError("SECRET launch")
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(BrowserProductCollector().collect(SHORT))
+    assert error.value.upstream_diagnostic is None

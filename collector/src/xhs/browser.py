@@ -16,6 +16,7 @@ from xhs.browser_collector import (
     finish_cleanup,
     navigation_input,
 )
+from xhs.upstream_diagnostics import ERROR_CAPTURE_TIMEOUT, MAX_ERROR_BODY_BYTES
 
 
 @dataclass(frozen=True)
@@ -27,17 +28,22 @@ class BrowserConfig:
     navigation_timeout: float = 30.0
     response_timeout: float = 15.0
     cleanup_timeout: float = 5.0
+    error_capture_timeout: float = ERROR_CAPTURE_TIMEOUT
+    max_error_body_bytes: int = MAX_ERROR_BODY_BYTES
 
     def __post_init__(self) -> None:
         if type(self.headless) is not bool or self.channel not in (None, "chrome"):
             raise ValueError("Only headless bool and the optional chrome channel are supported")
         if type(self.max_concurrent_collections) is not int or self.max_concurrent_collections < 1:
             raise ValueError("max_concurrent_collections must be a positive integer")
+        if type(self.max_error_body_bytes) is not int or self.max_error_body_bytes < 1:
+            raise ValueError("max_error_body_bytes must be a positive integer")
         for value in (
             self.queue_timeout,
             self.navigation_timeout,
             self.response_timeout,
             self.cleanup_timeout,
+            self.error_capture_timeout,
         ):
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError("timeouts must be finite positive seconds")
@@ -218,6 +224,8 @@ class BrowserManager:
                 navigation_timeout=self.config.navigation_timeout,
                 response_timeout=self.config.response_timeout,
                 cleanup_timeout=self.config.cleanup_timeout,
+                error_capture_timeout=self.config.error_capture_timeout,
+                max_error_body_bytes=self.config.max_error_body_bytes,
                 on_access_restricted=lambda: self._terminate("restricted", origin),
                 on_cleanup_failure=lambda failure: self._on_cleanup_failure(
                     failure, origin, collector
@@ -233,7 +241,11 @@ class BrowserManager:
                 self._terminate("unavailable", asyncio.current_task())
                 await self._close_browser()
             elif collector is None or not collector.cleanup.failures:
-                self._check_ready()
+                try:
+                    self._check_ready()
+                except BrowserCollectionError as state_error:
+                    state_error.upstream_diagnostic = exc.upstream_diagnostic
+                    raise state_error from None
             raise
         finally:
             try:

@@ -652,3 +652,105 @@ async def test_browser_close_timeout_escalation_and_failed_driver_stop_remain_di
     await manager.stop()  # Explicit shutdown can finish the failed transport teardown.
     assert attempts == 2 and pw.stopped and context.closed
     assert not manager.cleanup.pending and manager._browser is None
+
+
+@scenario
+async def test_restricted_is_latched_before_error_body_finishes_and_evidence_survives():
+    from test_browser_collector import Response
+
+    manager, pw = build(error_capture_timeout=0.1)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    entered, release = asyncio.Event(), asyncio.Event()
+    raw = b' { "code":123, "msg":"error SECRET" }\n'
+    response = Response(raw, status=461)
+
+    async def body():
+        entered.set()
+        await release.wait()
+        return raw
+
+    response.body = body
+    context.page.responses = [response]
+    pw.browser.gate.set()
+    await entered.wait()
+    assert manager.state == "restricted" and not task.done()
+    with pytest.raises(BrowserCollectionError) as rejected:
+        await manager.collect(ID)
+    assert rejected.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert rejected.value.upstream_diagnostic is None
+    assert len(pw.browser.contexts) == 1
+    release.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.upstream_diagnostic.raw_body == raw
+    assert context.closed and manager._semaphore._value == 1
+    await manager.stop()
+    assert pw.stopped and not manager._workers
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"error_capture_timeout": 0}, {"max_error_body_bytes": 0}, {"max_error_body_bytes": True}],
+)
+def test_diagnostic_config_validation(options):
+    with pytest.raises(ValueError):
+        BrowserConfig(**options)
+
+
+@scenario
+async def test_json_restriction_latches_before_diagnostic_and_cdp_cleanup_finish():
+    from test_browser_collector import Response
+
+    manager, pw = build(cleanup_timeout=0.1)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    entered, release = asyncio.Event(), asyncio.Event()
+    raw = '{"success":false,"code":123,"msg":"安全验证 SECRET"}'.encode()
+    context.page.responses = [Response(raw)]
+
+    async def detach():
+        entered.set()
+        await release.wait()
+
+    context.page.cdp.detach = detach
+    pw.browser.gate.set()
+    await entered.wait()
+    assert manager.state == "restricted" and not task.done()
+    with pytest.raises(BrowserCollectionError):
+        await manager.collect(ID)
+    release.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert error.value.upstream_diagnostic.http_status == 200
+    assert error.value.upstream_diagnostic.business_code == 123
+    assert error.value.upstream_diagnostic.raw_body == raw
+    await manager.stop()
+
+
+@scenario
+async def test_runtime_state_error_preserves_existing_upstream_diagnostic():
+    manager, pw = build()
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+
+    async def body():
+        pw.browser.connected = False  # Event callback has not arrived yet.
+        raise PlaywrightError("SECRET disconnected")
+
+    context.page.responses[0].body = body
+    pw.browser.gate.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_UNAVAILABLE"
+    assert error.value.upstream_diagnostic.http_status == 200
+    assert error.value.upstream_diagnostic.capture_status == "read_error"
+    assert manager.state == "unavailable" and context.closed
+    await manager.stop()

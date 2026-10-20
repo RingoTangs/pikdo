@@ -46,7 +46,15 @@ def test_help(capsys):
     assert result.value.code == 0
     text = capsys.readouterr().out
     assert all(
-        option in text for option in ("--input", "--output", "--headed", "--channel", "--timeout")
+        option in text
+        for option in (
+            "--input",
+            "--output",
+            "--headed",
+            "--channel",
+            "--timeout",
+            "--error-output",
+        )
     )
 
 
@@ -222,3 +230,195 @@ def test_real_probe_core_preserves_461_over_detach_timeout(monkeypatch, capsys, 
     assert "stage=cdp_detach outcome=timeout" in caplog.text
     assert "SECRET" not in captured.out + captured.err + caplog.text
     assert pw.browser.closed and pw.context.closed and pw.stopped
+
+
+def error_evidence(status="captured"):
+    from xhs.upstream_diagnostics import extract_upstream_error
+
+    body = b' { "success" : false, "code":123, "msg":"Cookie=SECRET xsec_token=SECRET Authorization=SECRET x-s=SECRET x-t=SECRET" }\n'
+    return extract_upstream_error(
+        body if status == "captured" else None,
+        461,
+        source="product_response",
+        collection_id="a" * 32,
+        capture_status=status,
+    )
+
+
+def test_error_output_bytes_metadata_permissions_and_success_output_coexist(
+    collector, tmp_path, capsys
+):
+    import json
+    import stat
+
+    diagnostic = error_evidence()
+    collector.error = BrowserCollectionError(
+        "BROWSER_ACCESS_RESTRICTED", "safe", upstream_diagnostic=diagnostic
+    )
+    output = tmp_path / "probe"
+    module.write_output(output, b"existing success response")
+    assert module.main(["--input", ID, "--output", str(output), "--error-output", str(output)]) == 1
+    directory = output / ("error-" + "a" * 32)
+    assert (directory / "upstream-error.bin").read_bytes() == diagnostic.raw_body
+    metadata = json.loads((directory / "diagnostic.json").read_bytes())
+    assert metadata["body_sha256"] == hashlib.sha256(diagnostic.raw_body).hexdigest()
+    assert metadata["body_size"] == len(diagnostic.raw_body)
+    assert metadata["collector_error"] == "BROWSER_ACCESS_RESTRICTED"
+    assert "SECRET" not in json.dumps(metadata)
+    assert (output / "response.json").read_bytes() == b"existing success response"
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    for filename in ("upstream-error.bin", "diagnostic.json"):
+        assert stat.S_IMODE((directory / filename).stat().st_mode) == 0o600
+    captured = capsys.readouterr()
+    assert "SECRET" not in captured.out + captured.err
+    assert "结果：BROWSER_ACCESS_RESTRICTED" in captured.out
+    assert not list(output.glob(".browser-probe-error-*"))
+
+
+@pytest.mark.parametrize(
+    "status", ["timeout", "read_error", "too_large", "skipped_unknown_length", "unavailable"]
+)
+def test_uncaptured_error_exports_metadata_only(tmp_path, status):
+    import json
+
+    output = tmp_path / "probe"
+    module.write_error_output(output, error_evidence(status), "BROWSER_ACCESS_RESTRICTED")
+    directory = output / ("error-" + "a" * 32)
+    assert not (directory / "upstream-error.bin").exists()
+    metadata = json.loads((directory / "diagnostic.json").read_bytes())
+    assert metadata["capture_status"] == status
+    assert metadata["body_sha256"] is metadata["body_size"] is None
+
+
+def test_default_failure_does_not_export_and_success_does_not_export_errors(
+    collector, tmp_path, capsys
+):
+    collector.error = BrowserCollectionError(
+        "BROWSER_ACCESS_RESTRICTED", "safe", upstream_diagnostic=error_evidence()
+    )
+    output = tmp_path / "probe"
+    assert module.main(["--input", ID, "--output", str(output)]) == 1
+    assert not output.exists()
+    collector.error = None
+    assert module.main(["--input", ID, "--error-output", str(output)]) == 0
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "target", ["root", "destination", "upstream-error.bin", "diagnostic.json", PROBE_MARKER]
+)
+def test_error_export_rejects_symlink_targets(tmp_path, target):
+    root = tmp_path / "probe"
+    real = tmp_path / "real"
+    real.mkdir()
+    if target == "root":
+        root.symlink_to(real, target_is_directory=True)
+    else:
+        root.mkdir()
+        destination = root / ("error-" + "a" * 32)
+        if target == "destination":
+            destination.symlink_to(real, target_is_directory=True)
+        else:
+            destination.mkdir()
+            (destination / target).symlink_to(tmp_path / "victim")
+    with pytest.raises(BrowserCollectionError):
+        module.write_error_output(root, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    assert list(real.iterdir()) == []
+    assert not (tmp_path / "victim").exists()
+
+
+def test_error_export_checks_actual_git_ignored_filenames(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("/probe/response.json\n/probe/.pikdo-browser-probe\n")
+    output = tmp_path / "probe"
+    module.checked_output(str(output))
+    with pytest.raises(BrowserCollectionError):
+        module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    assert not output.exists()
+    (tmp_path / ".gitignore").write_text("/probe/\n")
+    module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    for path in output.rglob("*"):
+        assert (
+            subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=tmp_path).returncode == 0
+        )
+
+
+def test_error_export_atomic_publish_failure_has_no_partial_bundle(tmp_path, monkeypatch):
+    output = tmp_path / "probe"
+    module.write_output(output, b"old response")
+
+    def fail(*args, **kwargs):
+        raise OSError("SECRET filesystem failure")
+
+    monkeypatch.setattr(module.os, "rename", fail)
+    with pytest.raises(OSError):
+        module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    assert (output / "response.json").read_bytes() == b"old response"
+    assert not list(output.glob("error-*")) and not list(output.glob(".browser-probe-error-*"))
+
+
+def test_error_export_does_not_overwrite_previous_bundle(tmp_path):
+    output = tmp_path / "probe"
+    module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    body = output / ("error-" + "a" * 32) / "upstream-error.bin"
+    expected = body.read_bytes()
+    with pytest.raises(BrowserCollectionError):
+        module.write_error_output(output, error_evidence("timeout"), "BROWSER_ACCESS_RESTRICTED")
+    assert body.read_bytes() == expected
+    assert not list(output.glob(".browser-probe-error-*"))
+
+
+def test_error_export_failure_keeps_primary_cli_error(collector, tmp_path, monkeypatch, capsys):
+    collector.error = BrowserCollectionError(
+        "BROWSER_ACCESS_RESTRICTED", "safe", upstream_diagnostic=error_evidence()
+    )
+
+    def fail(*args):
+        raise OSError("SECRET")
+
+    monkeypatch.setattr(module, "write_error_output", fail)
+    assert module.main(["--input", ID, "--error-output", str(tmp_path / "probe")]) == 1
+    captured = capsys.readouterr()
+    assert "结果：BROWSER_ACCESS_RESTRICTED" in captured.out
+    assert "诊断导出：BROWSER_OUTPUT_IO_ERROR" in captured.out
+    assert "SECRET" not in captured.out + captured.err
+
+
+def test_error_raw_files_are_protected_from_tooling(tmp_path):
+    output = tmp_path / "probe"
+    module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    directory = output / ("error-" + "a" * 32)
+    before = {path: path.read_bytes() for path in directory.iterdir()}
+    for path in directory.iterdir():
+        assert tooling.format_json(path, check=False)
+    assert all(path.read_bytes() == body for path, body in before.items())
+
+
+def test_error_export_partial_write_failure_does_not_publish_pair(tmp_path, monkeypatch):
+    output = tmp_path / "probe"
+    original_fsync = module.os.fsync
+    calls = 0
+
+    def fail_during_second_file(descriptor):
+        nonlocal calls
+        calls += 1
+        if calls == 3:  # marker, metadata, then raw body
+            raise OSError("SECRET partial write")
+        return original_fsync(descriptor)
+
+    monkeypatch.setattr(module.os, "fsync", fail_during_second_file)
+    with pytest.raises(OSError):
+        module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    assert sorted(p.name for p in output.iterdir()) == [PROBE_MARKER]
+
+
+def test_error_export_rejects_original_and_historical_data(tmp_path):
+    for output in (EXAMPLES_DIR, EXAMPLES_DIR / "nested"):
+        with pytest.raises(BrowserCollectionError):
+            module.write_error_output(output, error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    root = tmp_path / "archive"
+    root.mkdir()
+    (root / ".pikdo-example-archive").write_bytes(b"historical")
+    with pytest.raises(BrowserCollectionError):
+        module.write_error_output(root / "nested", error_evidence(), "BROWSER_ACCESS_RESTRICTED")
+    assert sorted(p.name for p in root.iterdir()) == [".pikdo-example-archive"]
