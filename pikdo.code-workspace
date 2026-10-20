@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "name": "root",
+      "path": ".",
+    },
+    { "path": "collector" },
+    { "path": "server" },
+    { "path": "web" },
+    { "path": "docs" },
+  ],
+}
