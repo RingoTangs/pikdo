@@ -1,0 +1,21 @@
+spring:
+  web:
+    locale: en
+  messages:
+    encoding: UTF-8
+    fallback-to-system-locale: false
+  application:
+    name: spring-app
+
+server:
+  port: 8080
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"

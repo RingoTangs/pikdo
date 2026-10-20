@@ -1,0 +1,142 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>org.example</groupId>
+    <artifactId>spring-app</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>spring-app</name>
+    <description>
+        Spring Boot template with Java 21, REST API examples, request validation,
+        business exception handling, and development-only Swagger UI.
+    </description>
+
+    <properties>
+        <!-- 编译目标为 Java 21，编译插件沿用 Spring Boot Parent 配置。 -->
+        <java.version>21</java.version>
+        <!-- 源码、资源和报告统一使用 UTF-8。 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- 构建环境检查插件版本。 -->
+        <maven-enforcer.version>3.6.3</maven-enforcer.version>
+        <!-- 安全修复版本覆盖；Boot 管理的版本达到这些版本或更新版本后可移除。 -->
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+        <jackson-bom.version>3.1.7</jackson-bom.version>
+        <tomcat.version>11.0.26</tomcat.version>
+        <logback.version>1.6.5</logback.version>
+        <!-- 项目显式声明的依赖版本，其他依赖优先由 Boot 管理。 -->
+        <jspecify.version>1.0.0</jspecify.version>
+        <springdoc.version>3.1.1</springdoc.version>
+        <!-- Java 格式化插件及格式化引擎版本。 -->
+        <spotless.version>3.10.4</spotless.version>
+        <google-java-format.version>1.30.0</google-java-format.version>
+    </properties>
+
+    <dependencies>
+        <!-- Jakarta Validation 参数校验支持。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- OpenAPI 文档与 Swagger UI，按应用配置控制是否启用。 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+        <!-- Spring MVC HTTP 接口支持。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- Spring MVC 测试支持，仅用于测试阶段。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 空值约定标注，配合包级 @NullMarked 使用。 -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>${jspecify.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- validate 阶段检查 Maven 和 JDK 版本，不满足要求时构建失败。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven-enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-development-environment</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>[3.9,4.0)</version>
+                                    <message>This project requires Maven 3.9.x.</message>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>This project requires JDK 21.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 使用 Google Java Format AOSP 风格；spotless:apply 格式化，verify 阶段检查格式。 -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                    <lineEndings>UNIX</lineEndings>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <googleJavaFormat>
+                            <version>${google-java-format.version}</version>
+                            <style>AOSP</style>
+                            <reorderImports>true</reorderImports>
+                        </googleJavaFormat>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>format-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 沿用 Boot Parent 的 repackage 执行配置，生成可直接运行的 JAR。 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
