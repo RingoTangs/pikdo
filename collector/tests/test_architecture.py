@@ -6,10 +6,55 @@ import importlib.metadata
 import importlib.util
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_browser_contract_import_paths_preserve_identity():
+    from xhs import browser, browser_collector, browser_config, browser_contracts
+
+    assert browser.BrowserConfig is browser_config.BrowserConfig
+    for name in ("ReadinessSnapshot", "ProductCollectionService"):
+        assert getattr(browser, name) is getattr(browser_contracts, name)
+    for name in ("BrowserCollectionError", "BrowserProductResult", "ProbeStatus"):
+        assert getattr(browser_collector, name) is getattr(browser_contracts, name)
+
+
+def test_browser_helper_import_paths_preserve_identity():
+    from xhs import browser_collector, browser_navigation, browser_response
+
+    for name in ("navigation_input", "navigation_target"):
+        assert getattr(browser_collector, name) is getattr(browser_navigation, name)
+    for name in ("response_item_id", "parse_browser_body", "DETAIL_PATH"):
+        assert getattr(browser_collector, name) is getattr(browser_response, name)
+
+
+def test_browser_modules_import_without_owner_cycles():
+    modules = (
+        "browser_config",
+        "browser_contracts",
+        "browser_navigation",
+        "browser_response",
+        "browser_page",
+        "browser_collector",
+        "browser",
+    )
+    # Fresh interpreters expose imports that only work after another test loaded an owner.
+    for order in (modules, modules[::-1], modules[4:] + modules[:4]):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                f"import importlib; [importlib.import_module('xhs.' + name) for name in {order!r}]",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr.decode()
 
 
 def test_removed_modules_and_cli_are_not_available():

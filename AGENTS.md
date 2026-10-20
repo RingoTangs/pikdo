@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Pikdo currently contains a Python Collector service. `collector/src/app.py` defines FastAPI routes, application lifecycle, and the development entry point. `collector/src/xhs/` contains the Playwright BrowserManager and collector, pure input/product parsers, Pydantic schemas, value sanitizers, and errors. Keep browser navigation and response capture in `browser_collector.py`, lifecycle management in `browser.py`, and parsing independently testable. There is no HTTPX upstream client, Resolve API, batch CLI, or archive system.
+Pikdo currently contains a Python Collector service. `collector/src/app.py` defines FastAPI routes, application lifecycle, and the development entry point. `collector/src/xhs/` contains the Playwright BrowserManager and collector, pure input/product parsers, Pydantic schemas, value sanitizers, and errors. Keep shared Browser lifecycle management in `browser.py`, per-collection Context ownership in `browser_collector.py`, and page capture state in `browser_page.py`. Pure navigation and response helpers belong in `browser_navigation.py` and `browser_response.py`; configuration and shared contracts belong in `browser_config.py` and `browser_contracts.py`. Preserve legacy imports and runtime injection through `browser_collector.py`, and keep parsing independently testable. There is no HTTPX upstream client, Resolve API, batch CLI, or archive system.
 
 Tests live in `collector/tests/`. `collector/examples/` contains original upstream samples and supporting documentation. `docs/` holds reference specifications; implement only the requested scope, since those references also describe features outside Collector.
 

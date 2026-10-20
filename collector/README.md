@@ -10,6 +10,8 @@ BrowserManager
     ↓
 BrowserProductCollector
     ↓
+PageCollectionSession
+    ↓
 Product Decoder → Product Parser / 业务模型
     ↓
 Product API
@@ -447,10 +449,18 @@ PIKDO_LOCAL_BROWSER_TESTS=1 uv run test tests/test_browser_local.py -v
 
 - `app.py`：三个 API、OpenAPI 和 Lifespan。
 - `xhs/input_parser.py`：纯文本解析与可信 URL 校验。
-- `xhs/browser.py`、`browser_collector.py`：浏览器生命周期和单次页面采集。
+- `xhs/browser.py`：共享 Browser 生命周期、状态、并发许可和 Worker 管理。
+- `xhs/browser_config.py`、`browser_contracts.py`：配置校验、就绪快照、采集结果、错误及服务契约；原导入路径保持兼容。
+- `xhs/browser_collector.py`：采集入口、独立 Context 的获取和释放、上游错误有界读取；独立模式另拥有 Browser 和 Playwright。
+- `xhs/browser_page.py`：每个 Page 独立的 PageCollectionSession，管理事件、CDP、导航、响应等待、诊断关联及页面任务清理。
+- `xhs/browser_navigation.py`、`browser_response.py`：纯导航校验、响应匹配和正文解码；旧模块保留运行时替换入口。
+- `xhs/browser_cleanup.py`、`upstream_diagnostics.py`：有界清理、任务回收和安全日志，以及不可变的内部上游诊断。
 - `xhs/product_decoder.py`、`parser.py`、`domains.py`、`schemas.py`、`values.py`：解码、业务映射、模型和输出过滤。
 - `xhs/browser_probe.py`、`probe_paths.py`：独立调试与只读路径保护。
 - `tooling.py`：格式化和只读检查。
 
 InputError 表示本地输入错误，ProductDataError 表示数据或业务拒绝，BrowserCollectionError 保留浏览器错误语义；数据异常不携带 HTTPX 状态或响应头。
+Session 借用 Context 和 Page，不关闭 Context 或共享 Browser。页面清理先移除监听器，再取消并等待任务，最后 detach CDP；
+尚未完成的任务仍由 Collector 的 CleanupTracker 追踪，在 Context 或 Browser 关闭后继续回收。
+共享契约和配置不依赖资源所有者；Session 对 Collector 的类型引用仅用于类型检查，不形成运行时循环依赖。
 后续可单独设计正式任务系统和持久化；本阶段不新增批量采集、文件归档、数据库、对象存储或队列。

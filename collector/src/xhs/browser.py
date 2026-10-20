@@ -1,10 +1,7 @@
 """One process-local Browser with isolated, bounded single-product collections."""
 
 import asyncio
-import math
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol
 
 from playwright.async_api import Browser, Playwright, async_playwright
 
@@ -16,53 +13,9 @@ from xhs.browser_collector import (
     finish_cleanup,
     navigation_input,
 )
-from xhs.upstream_diagnostics import ERROR_CAPTURE_TIMEOUT, MAX_ERROR_BODY_BYTES
-
-
-@dataclass(frozen=True)
-class BrowserConfig:
-    headless: bool = True
-    channel: str | None = None
-    max_concurrent_collections: int = 1
-    queue_timeout: float = 5.0
-    navigation_timeout: float = 30.0
-    response_timeout: float = 15.0
-    cleanup_timeout: float = 5.0
-    error_capture_timeout: float = ERROR_CAPTURE_TIMEOUT
-    max_error_body_bytes: int = MAX_ERROR_BODY_BYTES
-
-    def __post_init__(self) -> None:
-        if type(self.headless) is not bool or self.channel not in (None, "chrome"):
-            raise ValueError("Only headless bool and the optional chrome channel are supported")
-        if type(self.max_concurrent_collections) is not int or self.max_concurrent_collections < 1:
-            raise ValueError("max_concurrent_collections must be a positive integer")
-        if type(self.max_error_body_bytes) is not int or self.max_error_body_bytes < 1:
-            raise ValueError("max_error_body_bytes must be a positive integer")
-        for value in (
-            self.queue_timeout,
-            self.navigation_timeout,
-            self.response_timeout,
-            self.cleanup_timeout,
-            self.error_capture_timeout,
-        ):
-            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
-                raise ValueError("timeouts must be finite positive seconds")
-
-
-@dataclass(frozen=True, slots=True)
-class ReadinessSnapshot:
-    state: str
-    ready: bool
-    resource_healthy: bool
-    browser_connected: bool
-    reason: str | None
-
-
-class ProductCollectionService(Protocol):
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    async def collect(self, raw: str) -> BrowserProductResult: ...
-    def readiness_snapshot(self) -> ReadinessSnapshot: ...
+from xhs.browser_config import BrowserConfig as BrowserConfig
+from xhs.browser_contracts import ProductCollectionService as ProductCollectionService
+from xhs.browser_contracts import ReadinessSnapshot as ReadinessSnapshot
 
 
 class BrowserManager:
@@ -206,6 +159,7 @@ class BrowserManager:
             return
         if state == "unavailable":
             self._resource_healthy = False
+        # Restriction stays latched even when cleanup also makes the resource unhealthy.
         if self._state != "restricted":
             self._set_state(state)
         for task in tuple(self._workers):
@@ -252,6 +206,7 @@ class BrowserManager:
             self._workers.discard(worker)
 
     async def _run(self, raw: str) -> BrowserProductResult:
+        """Hold the permit through collection cleanup and any required browser teardown."""
         acquired = False
         collector = None
         try:
@@ -260,6 +215,7 @@ class BrowserManager:
                     await self._semaphore.acquire()
                 acquired = True
             except TimeoutError:
+                # A latched restriction/unavailability takes precedence over queue timeout.
                 self._check_ready()
                 raise BrowserCollectionError("BROWSER_BUSY", "等待浏览器采集许可超时") from None
             self._check_ready()
@@ -296,6 +252,7 @@ class BrowserManager:
                 if not self._resource_healthy:
                     await finish_cleanup(asyncio.create_task(self._close_browser()))
             finally:
+                # Release only an acquired permit, including caller cancellation during cleanup.
                 if acquired:
                     self._semaphore.release()
 
@@ -304,6 +261,7 @@ class BrowserManager:
             if self._browser is not None:
                 closed = await self.cleanup.run("browser_close", self._browser.close())
                 if not closed and self._playwright is not None:
+                    # A failed Browser.close cannot confirm Context/task reclamation.
                     self._driver_stopped = await self.cleanup.run(
                         "playwright_stop", self._playwright.stop()
                     )
@@ -311,6 +269,7 @@ class BrowserManager:
                 await collector.reap_pending()
 
         if self._close_task is None:
+            # All failure paths share one teardown; its disconnect event is expected.
             self._close_task = asyncio.create_task(close())
 
     async def _close_browser(self) -> None:
@@ -327,6 +286,7 @@ class BrowserManager:
             await collector.reap_pending()
             if not collector.cleanup.pending:
                 self._retired_collectors.discard(collector)
+        # Retain unconfirmed resources so explicit stop can finish failed transport teardown.
         if stopped or not self.cleanup.failures:
             self._browser = None
             self._playwright = None
