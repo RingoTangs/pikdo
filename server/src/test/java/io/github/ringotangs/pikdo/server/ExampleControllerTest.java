@@ -17,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 
+@WithoutDatabase
 @SpringBootTest
 @Import(ExampleController.class)
 @ActiveProfiles("dev")

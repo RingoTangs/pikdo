@@ -1,4 +1,15 @@
 spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    embedded-database-connection: none
+  sql:
+    init:
+      mode: never
+  flyway:
+    enabled: true
+    clean-disabled: true
+    baseline-on-migrate: false
+    validate-on-migrate: true
   web:
     locale: en
   messages:
@@ -29,3 +40,7 @@ springdoc:
 logging:
   pattern:
     level: "%5p [requestId=%X{requestId:-}]"
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true

@@ -19,6 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+@WithoutDatabase
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")

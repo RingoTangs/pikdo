@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+@WithoutDatabase
 @SpringBootTest
 @AutoConfigureMockMvc
 class ApplicationTest {
@@ -27,6 +28,15 @@ class ApplicationTest {
     @Test
     void healthHidesDetailsAndOtherManagementEndpointsRemainHidden() throws Exception {
         HealthEndpointAssertions.assertHealthAndExposure(mockMvc);
+    }
+
+    @Test
+    void webRegressionContextHasNoDatabaseInfrastructure() {
+        assertTrue(context.getBeansOfType(javax.sql.DataSource.class).isEmpty());
+        assertTrue(context.getBeansOfType(org.flywaydb.core.Flyway.class).isEmpty());
+        assertTrue(
+                context.getBeansOfType(org.apache.ibatis.session.SqlSessionFactory.class)
+                        .isEmpty());
     }
 
     @Test

@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /** Exercises the development application without importing any controller fixtures. */
+@WithoutDatabase
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
