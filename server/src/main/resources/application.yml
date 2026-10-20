@@ -1,0 +1,31 @@
+spring:
+  web:
+    locale: en
+  messages:
+    encoding: UTF-8
+    fallback-to-system-locale: false
+  application:
+    name: pikdo-server
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"

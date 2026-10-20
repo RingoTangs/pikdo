@@ -2,9 +2,13 @@
 
 ## Project Structure & Module Organization
 
-Pikdo currently contains a Python Collector service. `collector/src/app.py` defines FastAPI routes, application lifecycle, and the development entry point. `collector/src/xhs/` contains the Playwright BrowserManager and collector, pure input/product parsers, Pydantic schemas, value sanitizers, and errors. Keep shared Browser lifecycle management in `browser.py`, per-collection Context ownership in `browser_collector.py`, and page capture state in `browser_page.py`. Pure navigation and response helpers belong in `browser_navigation.py` and `browser_response.py`; configuration and shared contracts belong in `browser_config.py` and `browser_contracts.py`. Preserve legacy imports and runtime injection through `browser_collector.py`, and keep parsing independently testable. There is no HTTPX upstream client, Resolve API, batch CLI, or archive system.
+Pikdo is a Monorepo with two independently built services: `collector/` for Python data collection and `server/` for the Java SaaS backend foundation. The Server is a modular monolith; business modules and communication with Collector are not implemented yet.
 
-Tests live in `collector/tests/`. `collector/examples/` contains original upstream samples and supporting documentation. `docs/` holds reference specifications; implement only the requested scope, since those references also describe features outside Collector.
+`collector/src/app.py` defines FastAPI routes, application lifecycle, and the development entry point. `collector/src/xhs/` contains the Playwright BrowserManager and collector, pure input/product parsers, Pydantic schemas, value sanitizers, and errors. Keep shared Browser lifecycle management in `browser.py`, per-collection Context ownership in `browser_collector.py`, and page capture state in `browser_page.py`. Pure navigation and response helpers belong in `browser_navigation.py` and `browser_response.py`; configuration and shared contracts belong in `browser_config.py` and `browser_contracts.py`. Preserve legacy imports and runtime injection through `browser_collector.py`, and keep parsing independently testable. There is no HTTPX upstream client, Resolve API, batch CLI, or archive system.
+
+`server/src/main/java/io/github/ringotangs/pikdo/server/` contains `Application`, Web configuration in `config/`, and shared errors in `exception/`. Keep the startup class named `Application`. Server tests and explicitly imported Controller fixtures live under `server/src/test/`; fixtures must not be auto-scanned or packaged in the production JAR.
+
+Collector tests live in `collector/tests/`. `collector/examples/` contains original upstream samples and supporting documentation. `docs/` holds reference specifications; implement only the requested scope, since those references also describe features outside Collector.
 
 ## Build, Test, and Development Commands
 
@@ -20,13 +24,26 @@ Run these commands from `collector/`:
 
 Use Python 3.13 and uv; update `uv.lock` when dependencies or project metadata require it. Run `git diff --check` before submitting changes.
 
+Run Server commands from `server/` with JDK 21 and the Maven Wrapper (Maven 3.9.x):
+
+- `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev`: start development mode on port 8080.
+- `./mvnw test`: run all Java tests.
+- `./mvnw spotless:check` / `./mvnw spotless:apply`: check or format Java using Google Java Format AOSP.
+- `./mvnw clean verify`: clean, test, package the executable JAR, and check formatting.
+
+Preserve existing dependency overrides and Maven plugins unless the task requires a change. Default/prod disable Swagger; dev enables it. All profiles expose `/actuator/health` without component details; only `health` is exposed over Web.
+
 ## Coding Style & Naming Conventions
 
 Use four-space indentation, type annotations, snake_case functions and fields, and PascalCase classes. Follow surrounding code style. Ruff and mdformat are configured through the project tooling commands. Define public responses with Pydantic models and group parsing helpers by business domain. Preserve existing API fields and unified error responses when extending functionality.
 
+Java uses the `io.github.ringotangs.pikdo.server` namespace, PascalCase classes and camelCase members. Preserve package-level `@NullMarked` conventions and the existing `{code,message}` error contract. Keep Request ID generation, Servlet dispatch registration, MDC restoration, Locale resolution, translations, and production structured logging intact.
+
 ## Testing Guidelines
 
 Use pytest, `test_*.py` files, and `test_*` functions. API tests use FastAPI TestClient with explicitly injected fake collection services; browser tests use fake browser objects. HTTPX is only a development dependency for TestClient. Automated tests must not depend on live upstream requests. Opt-in Chromium tests use loopback pages only. No numeric coverage threshold is configured. Cover new behavior, malformed optional fields, error classification, precision, and backward compatibility.
+
+Server tests use JUnit and MockMvc. Preserve strict JSON/status assertions and English/Chinese error coverage. Test Controllers must be marked as test components and imported explicitly. Verify default/dev/prod isolation, including the absence of fixture routes and unexposed management endpoints. Do not introduce external services or SaaS infrastructure without task scope.
 
 ## Data Safety & Business Rules
 
