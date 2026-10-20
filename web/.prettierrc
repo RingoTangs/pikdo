@@ -1,0 +1,21 @@
+{
+  "tabWidth": 2,
+  "singleQuote": true,
+  "quoteProps": "as-needed",
+  "endOfLine": "lf",
+  "bracketSpacing": true,
+  "bracketSameLine": false,
+  "semi": false,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "plugins": ["@prettier/plugin-xml", "prettier-plugin-tailwindcss"],
+  "tailwindFunctions": ["cva", "cn", "cx"],
+  "overrides": [
+    {
+      "files": ["*.svg", "*.xml"],
+      "options": {
+        "parser": "xml"
+      }
+    }
+  ]
+}
