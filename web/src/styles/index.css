@@ -5,16 +5,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
-* {
-  box-sizing: border-box;
-}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
 
-html,
-body,
-#app {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
+  body {
+    @apply bg-background text-foreground;
+  }
 }

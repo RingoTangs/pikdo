@@ -9,11 +9,12 @@ type GeneralErrorProps = React.HTMLAttributes<HTMLDivElement> & {
 export function GeneralError({
   className,
   minimal = false,
+  ...props
 }: GeneralErrorProps) {
   const navigate = useNavigate()
   const { history } = useRouter()
   return (
-    <div className={cn('h-svh w-full', className)}>
+    <div className={cn('h-svh w-full', className)} {...props}>
       <div className="m-auto flex h-full w-full flex-col items-center justify-center gap-2">
         {!minimal && (
           <h1 className="text-[7rem] leading-tight font-bold">500</h1>
