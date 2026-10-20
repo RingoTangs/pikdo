@@ -522,3 +522,176 @@ def test_external_browser_failure_still_closes_context(browser):
     assert error.value.code == "BROWSER_NAVIGATION_FAILED"
     assert browser.context.closed and not browser.browser.closed
     assert browser.options is None
+
+
+@pytest.mark.parametrize("failure", ["detach_timeout", "context_error", "context_timeout"])
+def test_461_primary_survives_cleanup_failure(browser, failure):
+    browser.page.responses[0].status = 461
+
+    async def blocked():
+        await asyncio.Event().wait()
+
+    if failure == "detach_timeout":
+        browser.cdp.detach = blocked
+    elif failure == "context_timeout":
+        browser.context.close = blocked
+    else:
+        browser.context.close_error = PlaywrightError("Cookie=SECRET xsec_token=SECRET")
+    collector = BrowserProductCollector(cleanup_timeout=0.01)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(collector.collect_with_browser(SHORT, browser.browser))
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+
+
+def test_cancel_survives_context_cleanup_failure(browser):
+    async def exercise():
+        entered = asyncio.Event()
+
+        async def goto(*args, **kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+
+        browser.page.goto = goto
+        browser.context.close_error = PlaywrightError("Authorization=SECRET")
+        task = asyncio.create_task(
+            BrowserProductCollector().collect_with_browser(SHORT, browser.browser)
+        )
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+
+
+def test_461_watcher_join_timeout_is_bounded_and_reaped_by_context_close(browser, caplog):
+    async def exercise():
+        entered = asyncio.Event()
+        released = asyncio.Event()
+
+        async def watcher(**options):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await released.wait()
+
+        original_goto = browser.page.goto
+        original_close = browser.context.close
+
+        async def goto(*args, **kwargs):
+            await entered.wait()
+            await original_goto(*args, **kwargs)
+
+        async def close():
+            released.set()
+            await original_close()
+
+        browser.page.wait_for = watcher
+        browser.page.goto = goto
+        browser.context.close = close
+        browser.page.responses[0].status = 461
+        collector = BrowserProductCollector(cleanup_timeout=0.01)
+        with pytest.raises(BrowserCollectionError) as error:
+            await collector.collect_with_browser(SHORT, browser.browser)
+        assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+        assert any(
+            f.stage == "watchers_join" and f.outcome == "timeout"
+            for f in collector.cleanup.failures
+        )
+        assert browser.context.closed and not collector.cleanup.pending
+        assert all(not callbacks for callbacks in browser.page.listeners.values())
+
+    asyncio.run(exercise())
+    assert "stage=watchers_join outcome=timeout" in caplog.text
+
+
+def test_guarded_navigation_does_not_wait_for_context_dependent_cancellation(browser):
+    async def exercise():
+        released = asyncio.Event()
+        original_close = browser.context.close
+
+        async def goto(*args, **kwargs):
+            browser.page.emit("response", Response(status=461))
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await released.wait()
+
+        async def close():
+            released.set()
+            await original_close()
+
+        browser.page.goto = goto
+        browser.context.close = close
+        collector = BrowserProductCollector(cleanup_timeout=0.01)
+        with pytest.raises(BrowserCollectionError) as error:
+            await asyncio.wait_for(collector.collect_with_browser(SHORT, browser.browser), 0.5)
+        assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+        assert browser.context.closed and not collector.cleanup.pending
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("standalone", [False, True])
+@pytest.mark.parametrize("primary", ["success", "navigation", "461"])
+def test_cleanup_priority_and_safe_stage_logs(browser, caplog, standalone, primary):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="xhs.browser")
+    if primary == "navigation":
+        browser.page.error = PlaywrightError(
+            "https://xhslink.com/m/test?token=SECRET Cookie=SECRET"
+        )
+    elif primary == "461":
+        browser.page.responses[0].status = 461
+    browser.context.close_error = PlaywrightError("Authorization=SECRET x-s=SECRET")
+    collector = BrowserProductCollector(cleanup_timeout=0.01)
+    with pytest.raises(BrowserCollectionError) as error:
+        asyncio.run(
+            collector.collect(SHORT)
+            if standalone
+            else collector.collect_with_browser(SHORT, browser.browser)
+        )
+    expected = {
+        "success": "BROWSER_UNAVAILABLE",
+        "navigation": "BROWSER_NAVIGATION_FAILED",
+        "461": "BROWSER_ACCESS_RESTRICTED",
+    }
+    assert error.value.code == expected[primary]
+    assert collector.cleanup.failures[0].stage == "context_close"
+    assert collector.cleanup.failures[0].outcome == "error"
+    assert "SECRET" not in caplog.text and "SENTINEL" not in caplog.text
+    assert "https://" not in caplog.text
+    assert "stage=context_close outcome=error" in caplog.text
+    assert "event=browser.collection.completed" not in caplog.text
+    assert not any(record.exc_info for record in caplog.records)
+    if primary == "461":
+        assert "http_status=461" in caplog.text
+    if standalone:
+        assert browser.browser.closed and browser.stopped
+
+
+def test_finish_cleanup_keeps_repeated_cancellation_over_secondary_error():
+    from xhs.browser_collector import finish_cleanup
+
+    async def exercise():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def failing():
+            entered.set()
+            await release.wait()
+            raise PlaywrightError("Cookie=SECRET")
+
+        worker = asyncio.create_task(failing())
+        caller = asyncio.create_task(finish_cleanup(worker))
+        await entered.wait()
+        caller.cancel()
+        await asyncio.sleep(0)
+        caller.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+        assert worker.done() and worker.exception() is not None
+
+    asyncio.run(exercise())

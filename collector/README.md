@@ -96,6 +96,36 @@ HTTP 401/403/429/461、登录、安全验证或明确访问限制会停止运行
 不重试、不注入 Cookie/签名、不伪造指纹、不使用代理池或验证绕过；没有 HTTPX 兜底或恢复接口。
 管理器状态仅在进程内有效，当前按单服务工作进程运行。health 不表示浏览器或上游可用。
 
+## Phase 2D：主错误与清理诊断
+
+采集失败后，即使清理也失败，仍保留原始采集错误。例如商品响应 HTTP 461 加 CDP detach 超时，
+主要结果为 `BROWSER_ACCESS_RESTRICTED`，独立记录 `cleanup_error=BROWSER_UNAVAILABLE`、`stage=cdp_detach`、`outcome=timeout`。
+若采集成功但关键清理失败，则返回 `BROWSER_UNAVAILABLE`，不报告 SUCCESS、不写 Probe 原始输出。
+调用方取消在必要清理后继续传播 CancelledError，不转换为普通采集失败。
+
+Manager 将访问限制状态与资源健康分开记录：受限后保持 restricted，清理失败同时标记资源不健康并关闭共享 Browser。
+当前、排队及后续请求不会因此恢复采集；普通清理故障进入 unavailable。主动关闭 Browser 的断开事件不会再次取消正在保留主错误的请求。
+Context、CDP 和任务清理各自有界；任务未结束时保留引用，Context 关闭后再次回收，必要时关闭 Browser。
+Browser 关闭失败会进一步停止 Playwright；若资源关闭本身仍失败，保留失败诊断和已知资源引用，禁止复用，等待人工检查。
+不自动重启、不重试上游请求，不通过增大默认清理期限掩盖问题。
+
+标准 logging 名称为 `xhs.browser`，事件使用固定 key=value 字段。默认 WARNING 可见限制与清理失败；
+启用 INFO 可查看 started/completed 和状态变化。关联字段为随机 `collection_id`，与商品分享信息无关。
+字段包括 `error_code`、`cleanup_error`、`stage`、`outcome`、`elapsed_ms`、主页面/商品 HTTP 状态及 Manager 状态。
+阶段标识为 `listeners_remove`、`watchers_cancel`、`watchers_join`、`cdp_detach`、`context_close`、`browser_close`、`playwright_stop`，仅记录实际执行阶段。
+不记录输入、URL、请求头、正文或原始异常堆栈。API 错误仍仅有 code/message，不公开内部清理记录。
+
+需要完整本地诊断日志时，可使用原有 Probe 参数：
+
+```bash
+uv run python -c 'import logging, sys; from xhs.browser_probe import main; logging.basicConfig(level=logging.INFO, format="%(message)s"); sys.exit(main())' \
+  --input "https://xhslink.com/m/4tQFfvENODH"
+```
+
+离线测试已复现 HTTP 461 被 detach 超时、Context close 错误覆盖，以及取消被清理错误覆盖的旧行为。
+这不证明用户观察到的 7.125 秒耗时来自某个特定清理阶段，也不证明 headless 或浏览器 channel 是访问限制的原因。
+Phase 2D 不访问真实小红书、不改变启动参数或采集策略；本地 Chromium 验证仅访问 loopback。
+
 ## 错误结构
 
 商品采集错误直接返回 `code`、`message`，没有 `detail` 外层：

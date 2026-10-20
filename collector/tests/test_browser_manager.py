@@ -431,3 +431,224 @@ async def test_disconnection_detected_even_before_event_callback():
     assert error.value.code == "BROWSER_UNAVAILABLE" and manager.state == "unavailable"
     assert context.closed
     await manager.stop()
+
+
+@pytest.mark.parametrize("fault", ["detach_timeout", "context_error", "context_timeout"])
+@scenario
+async def test_461_and_cleanup_failure_latches_restriction_and_reaps_browser(fault, caplog):
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    first = asyncio.create_task(manager.collect(SHORT))
+    context = await pw.browser.created.get()
+    context.page.responses[0].status = 461
+
+    async def blocked():
+        await asyncio.Event().wait()
+
+    if fault == "detach_timeout":
+        context.page.cdp.detach = blocked
+    elif fault == "context_error":
+        context.close_error = PlaywrightError("Cookie=SECRET")
+    else:
+        context.close_gate = asyncio.Event()
+    queued = asyncio.create_task(manager.collect(ID))
+    pw.browser.gate.set()
+    results = await asyncio.gather(first, queued, return_exceptions=True)
+    assert [exc.code for exc in results] == ["BROWSER_ACCESS_RESTRICTED"] * 2
+    assert manager.state == "restricted" and not manager._resource_healthy
+    assert not pw.browser.connected and pw.browser.close_calls == 1
+    assert context.closed and len(pw.browser.contexts) == 1
+    assert manager._semaphore._value == 1 and not manager._workers
+    with pytest.raises(BrowserCollectionError) as error:
+        await manager.collect(ID)
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert "SECRET" not in caplog.text
+    await manager.stop()
+    assert pw.stopped and manager.state == "stopped"
+    assert not manager._retired_collectors and not manager.cleanup.pending
+
+
+@scenario
+async def test_navigation_primary_not_overwritten_by_owned_browser_disconnect():
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    context.page.error = PlaywrightError("SECRET navigation")
+    context.close_error = PlaywrightError("SECRET cleanup")
+    pw.browser.gate.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_NAVIGATION_FAILED"
+    assert manager.state == "unavailable" and context.closed
+    assert pw.browser.close_calls == 1 and manager._semaphore._value == 1
+    with pytest.raises(BrowserCollectionError) as next_error:
+        await manager.collect(ID)
+    assert next_error.value.code == "BROWSER_UNAVAILABLE"
+    await manager.stop()
+
+
+@scenario
+async def test_caller_cancellation_and_context_timeout_invalidates_and_reaps():
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    context.close_gate = asyncio.Event()
+    await context.page.entered.wait()
+    task.cancel()
+    await context.close_started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert context.closed and not pw.browser.connected
+    assert manager.state == "unavailable"
+    assert not manager._workers and manager._semaphore._value == 1
+    await manager.stop()
+
+
+@scenario
+async def test_failed_browser_close_escalates_to_playwright_stop_and_blocks_reuse(caplog):
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    original_stop = pw.stop
+
+    async def broken_close():
+        pw.browser.close_calls += 1
+        raise PlaywrightError("SECRET Cookie=SECRET")
+
+    async def stop():
+        await original_stop()
+        pw.browser.connected = False
+        for ctx in pw.browser.contexts:
+            ctx.closed = True
+
+    pw.browser.close = broken_close
+    pw.stop = stop
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    context.page.responses[0].status = 461
+    context.close_error = PlaywrightError("SECRET")
+    pw.browser.gate.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert pw.stopped and context.closed and not pw.browser.connected
+    assert "stage=browser_close outcome=error" in caplog.text
+    assert "SECRET" not in caplog.text
+    await manager.stop()
+    assert pw.browser.close_calls == 1
+
+
+@scenario
+async def test_watchers_waiting_for_browser_shutdown_are_reaped_without_join_cycle():
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    watcher_started = asyncio.Event()
+    browser_closed = asyncio.Event()
+    original_close = pw.browser.close
+
+    async def watch(**options):
+        watcher_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await browser_closed.wait()
+
+    async def close():
+        await original_close()
+        browser_closed.set()
+
+    context.page.wait_for = watch
+    context.page.responses[0].status = 461
+    context.close_error = PlaywrightError("SECRET")
+    pw.browser.close = close
+    # Navigation cannot emit responses until its restriction watcher is running.
+    original_goto = context.page.goto
+
+    async def goto(*args, **kwargs):
+        await watcher_started.wait()
+        return await original_goto(*args, **kwargs)
+
+    context.page.goto = goto
+    pw.browser.gate.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await asyncio.wait_for(task, 0.5)
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    collectors = tuple(manager._retired_collectors)
+    assert collectors and all(not collector.cleanup.pending for collector in collectors)
+    assert any(
+        f.stage == "watchers_join" for collector in collectors for f in collector.cleanup.failures
+    )
+    assert context.closed and pw.browser.close_calls == 1
+    await manager.stop()
+    assert not manager._retired_collectors and not manager.cleanup.pending
+
+
+@scenario
+async def test_unexpected_disconnect_with_cleanup_failure_stays_unavailable():
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    context.close_error = PlaywrightError("SECRET")
+    await context.page.entered.wait()
+    pw.browser.disconnect()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_UNAVAILABLE"
+    assert manager.state == "unavailable" and context.closed
+    assert manager._semaphore._value == 1 and not manager._workers
+    await manager.stop()
+    assert pw.stopped
+
+
+@scenario
+async def test_browser_close_timeout_escalation_and_failed_driver_stop_remain_diagnosable(caplog):
+    manager, pw = build(cleanup_timeout=0.01)
+    pw.browser.gate = asyncio.Event()
+
+    async def blocked_close():
+        pw.browser.close_calls += 1
+        await asyncio.Event().wait()
+
+    original_stop = pw.stop
+    attempts = 0
+
+    async def stop():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PlaywrightError("SECRET stop")
+        await original_stop()
+        pw.browser.connected = False
+        for context in pw.browser.contexts:
+            context.closed = True
+
+    pw.browser.close = blocked_close
+    pw.stop = stop
+    await manager.start()
+    task = asyncio.create_task(manager.collect(ID))
+    context = await pw.browser.created.get()
+    context.page.responses[0].status = 461
+    context.close_error = PlaywrightError("SECRET close")
+    pw.browser.gate.set()
+    with pytest.raises(BrowserCollectionError) as error:
+        await task
+    assert error.value.code == "BROWSER_ACCESS_RESTRICTED"
+    assert manager.state == "restricted" and not manager._resource_healthy
+    assert manager._browser is pw.browser  # Unconfirmed resources remain known to stop().
+    assert "stage=browser_close outcome=timeout" in caplog.text
+    assert "stage=playwright_stop outcome=error" in caplog.text
+    assert "SECRET" not in caplog.text
+    await manager.stop()  # Explicit shutdown can finish the failed transport teardown.
+    assert attempts == 2 and pw.stopped and context.closed
+    assert not manager.cleanup.pending and manager._browser is None

@@ -185,3 +185,40 @@ def test_formatter_never_reencodes_probe_bytes(tmp_path):
     assert tooling.discover_files(tmp_path)[".json"] == []
     assert tooling.format_json(output / "response.json", check=False)
     assert (output / "response.json").read_bytes() == body
+
+
+def test_real_probe_core_preserves_461_over_detach_timeout(monkeypatch, capsys, caplog, tmp_path):
+    import asyncio
+    import logging
+
+    from test_browser_collector import FakePlaywright
+
+    from xhs import browser_collector
+
+    pw = FakePlaywright()
+    pw.page.responses[0].status = 461
+
+    async def blocked():
+        await asyncio.Event().wait()
+
+    pw.cdp.detach = blocked
+    monkeypatch.setattr(browser_collector, "async_playwright", lambda: pw)
+    real_collector = browser_collector.BrowserProductCollector
+
+    def collector(**options):
+        return real_collector(cleanup_timeout=0.01, **options)
+
+    monkeypatch.setattr(module, "BrowserProductCollector", collector)
+    caplog.set_level(logging.INFO, logger="xhs.browser")
+    output = tmp_path / "probe"
+    code = module.main(
+        ["--input", "https://xhslink.com/m/test?token=SECRET", "--output", str(output)]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "商品响应 HTTP 状态：461" in captured.out
+    assert "结果：BROWSER_ACCESS_RESTRICTED" in captured.out
+    assert "结果：SUCCESS" not in captured.out and not output.exists()
+    assert "stage=cdp_detach outcome=timeout" in caplog.text
+    assert "SECRET" not in captured.out + captured.err + caplog.text
+    assert pw.browser.closed and pw.context.closed and pw.stopped

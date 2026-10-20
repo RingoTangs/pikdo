@@ -4,10 +4,10 @@ import asyncio
 import math
 import re
 from collections.abc import Awaitable, Callable, Coroutine
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 from playwright.async_api import (
     Browser,
@@ -20,7 +20,8 @@ from playwright.async_api import (
 )
 from playwright.async_api import Error as PlaywrightError
 
-from xhs.errors import InputError, ProductDataError
+from xhs.browser_cleanup import CleanupFailure, CleanupTracker, event, finish_cleanup
+from xhs.errors import BROWSER_HTTP_ERRORS, InputError, ProductDataError
 from xhs.input_parser import (
     H5_HOSTS,
     ITEM_ID,
@@ -151,6 +152,7 @@ class BrowserProductCollector:
         status: ProbeStatus | None = None,
         cleanup_timeout: float = 5.0,
         on_access_restricted: Callable[[], None] | None = None,
+        on_cleanup_failure: Callable[[CleanupFailure], None] | None = None,
     ) -> None:
         if channel not in (None, "chrome"):
             raise ValueError("channel must be chrome or None")
@@ -165,6 +167,8 @@ class BrowserProductCollector:
         self.response_timeout = response_timeout
         self.cleanup_timeout = cleanup_timeout
         self._on_access_restricted = on_access_restricted
+        self.collection_id = uuid4().hex
+        self.cleanup = CleanupTracker(cleanup_timeout, self.collection_id, on_cleanup_failure)
         self.status = status if status is not None else ProbeStatus()
 
     def _reset_status(self) -> None:
@@ -173,37 +177,54 @@ class BrowserProductCollector:
         self.status.item_id = None
         self.status.http_status = None
         self.status.navigation_http_status = None
+        event("browser.collection.started", collection_id=self.collection_id)
 
     async def collect(self, raw: str) -> BrowserProductResult:
         url, expected_id = navigation_input(raw)
         self._reset_status()
 
-        async def close_browser(browser: Browser) -> None:
-            try:
-                async with asyncio.timeout(self.cleanup_timeout):
-                    await browser.close()
-            except (PlaywrightError, TimeoutError):
-                pass
-
+        browser = None
+        playwright_context = async_playwright()
+        playwright = None
+        primary = None
         try:
-            async with AsyncExitStack() as stack:
-                try:
-                    playwright = await stack.enter_async_context(async_playwright())
-                    options = {"headless": self.headless, "timeout": self.navigation_timeout * 1000}
-                    if self.channel:
-                        options["channel"] = self.channel
-                    browser = await playwright.chromium.launch(**options)
-                    stack.push_async_callback(close_browser, browser)
-                except PlaywrightError as exc:
-                    raise BrowserCollectionError(
-                        "BROWSER_LAUNCH_FAILED", "无法初始化浏览器，请检查浏览器二进制和运行权限"
-                    ) from exc
-                self.status.browser_started = True
-                return await self._collect_context(browser, url, expected_id, standalone=True)
-        except BrowserCollectionError:
+            try:
+                playwright = await playwright_context.__aenter__()
+                options = {"headless": self.headless, "timeout": self.navigation_timeout * 1000}
+                if self.channel:
+                    options["channel"] = self.channel
+                browser = await playwright.chromium.launch(**options)
+            except PlaywrightError:
+                raise BrowserCollectionError(
+                    "BROWSER_LAUNCH_FAILED", "无法初始化浏览器，请检查浏览器二进制和运行权限"
+                ) from None
+            self.status.browser_started = True
+            result = await self._collect_context(browser, url, expected_id, standalone=True)
+        except BaseException as exc:
+            primary = exc
             raise
-        except PlaywrightError as exc:
-            raise BrowserCollectionError("BROWSER_NAVIGATION_FAILED", "浏览器操作失败") from exc
+        finally:
+
+            async def release() -> None:
+                if browser is not None:
+                    await self.cleanup.run("browser_close", browser.close())
+                if playwright is not None:
+                    await self.cleanup.run(
+                        "playwright_stop", playwright_context.__aexit__(None, None, None)
+                    )
+                await self.reap_pending()
+
+            await finish_cleanup(asyncio.create_task(release()))
+            if primary is None and self.cleanup.failures:
+                raise BrowserCollectionError("BROWSER_UNAVAILABLE", "浏览器资源无法安全释放")
+
+        event(
+            "browser.collection.completed",
+            collection_id=self.collection_id,
+            navigation_http_status=self.status.navigation_http_status,
+            product_http_status=self.status.http_status,
+        )
+        return result
 
     async def collect_with_browser(self, raw: str, browser: Browser) -> BrowserProductResult:
         """Borrow a Browser; own only this collection's isolated Context."""
@@ -211,7 +232,14 @@ class BrowserProductCollector:
         self._reset_status()
         self.status.browser_started = True
         try:
-            return await self._collect_context(browser, url, expected_id, standalone=False)
+            result = await self._collect_context(browser, url, expected_id, standalone=False)
+            event(
+                "browser.collection.completed",
+                collection_id=self.collection_id,
+                navigation_http_status=self.status.navigation_http_status,
+                product_http_status=self.status.http_status,
+            )
+            return result
         except PlaywrightError as exc:
             raise BrowserCollectionError("BROWSER_NAVIGATION_FAILED", "浏览器操作失败") from exc
 
@@ -224,15 +252,7 @@ class BrowserProductCollector:
             async with asyncio.timeout(self.navigation_timeout):
                 return await browser.new_context()
 
-        async def close_context() -> None:
-            try:
-                async with asyncio.timeout(self.cleanup_timeout):
-                    await context.close()
-            except (PlaywrightError, TimeoutError) as exc:
-                if not standalone:
-                    raise BrowserCollectionError(
-                        "BROWSER_UNAVAILABLE", "浏览器 Context 无法安全释放，已停止采集"
-                    ) from exc
+        primary = None
 
         creation = asyncio.create_task(create_context())
         try:
@@ -262,16 +282,46 @@ class BrowserProductCollector:
                     "无法创建商品页面",
                 ) from exc
             return await self._collect_page(context, page, url, expected_id)
-        except BrowserCollectionError as exc:
-            if exc.code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
+        except BaseException as exc:
+            if isinstance(exc, PlaywrightError):
+                exc = BrowserCollectionError("BROWSER_NAVIGATION_FAILED", "浏览器操作失败")
+            primary = exc
+            code = (
+                exc.code
+                if isinstance(exc, BrowserCollectionError) and exc.code in BROWSER_HTTP_ERRORS
+                else "CANCELLED"
+                if isinstance(exc, asyncio.CancelledError)
+                else "BROWSER_NAVIGATION_FAILED"
+            )
+            if code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
                 self._on_access_restricted()
-            raise
+            event(
+                "browser.collection.failed",
+                warning=True,
+                collection_id=self.collection_id,
+                error_code=code,
+                navigation_http_status=self.status.navigation_http_status,
+                product_http_status=self.status.http_status,
+            )
+            raise exc from None
         finally:
-            if context is None and creation.done() and not creation.cancelled():
-                if creation.exception() is None:
-                    context = creation.result()
-            if context is not None:
-                await finish_cleanup(asyncio.create_task(close_context()))
+
+            async def release() -> None:
+                nonlocal context
+                if context is None and creation.done() and not creation.cancelled():
+                    if creation.exception() is None:
+                        context = creation.result()
+                if context is not None:
+                    await self.cleanup.run("context_close", context.close())
+                await self.reap_pending()
+
+            await finish_cleanup(asyncio.create_task(release()))
+            if primary is None and self.cleanup.failures:
+                raise BrowserCollectionError("BROWSER_UNAVAILABLE", "浏览器资源无法安全释放")
+
+    async def reap_pending(self) -> None:
+        if any(not task.done() for task in self.cleanup.pending):
+            await self.cleanup.run("watchers_join", self.cleanup.join())
 
     async def _collect_page(
         self, context: BrowserContext, page: Page, url: str, expected_id: str | None
@@ -284,18 +334,20 @@ class BrowserProductCollector:
         on_paused = None
 
         def fail(code: str, message: str) -> None:
+            if code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
+                self._on_access_restricted()
             if not failure.done():
-                if code == "BROWSER_ACCESS_RESTRICTED" and self._on_access_restricted:
-                    self._on_access_restricted()
                 failure.set_result(BrowserCollectionError(code, message))
 
         def schedule(coroutine: Coroutine) -> None:
-            task = asyncio.create_task(coroutine)
+            task = self.cleanup.own(asyncio.create_task(coroutine))
             tasks.add(task)
             task.add_done_callback(tasks.discard)
 
         async def guarded[T](awaitable: Awaitable[T]) -> T:
-            task = asyncio.ensure_future(awaitable)
+            task = self.cleanup.own(asyncio.ensure_future(awaitable))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
             try:
                 done, _ = await asyncio.wait({task, failure}, return_when=asyncio.FIRST_COMPLETED)
                 if failure in done:
@@ -304,7 +356,6 @@ class BrowserProductCollector:
             finally:
                 if not task.done():
                     task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
 
         def on_response(response: Response) -> None:
             request = response.request
@@ -317,6 +368,14 @@ class BrowserProductCollector:
                     self.status.http_status = response.status
                 if is_main:
                     self.status.navigation = "restricted"
+                event(
+                    "browser.collection.restricted",
+                    warning=True,
+                    collection_id=self.collection_id,
+                    reason="main_response_status" if is_main else "product_response_status",
+                    http_status=response.status,
+                    error_code="BROWSER_ACCESS_RESTRICTED",
+                )
                 fail("BROWSER_ACCESS_RESTRICTED", "上游要求认证、验证或限制访问")
             elif candidate is not None:
                 if responses.full():
@@ -454,28 +513,42 @@ class BrowserProductCollector:
                 "BROWSER_NAVIGATION_TIMEOUT", "初始化页面导航控制超时"
             ) from exc
         finally:
-            page.remove_listener("response", on_response)
-            page.remove_listener("framenavigated", on_frame)
-            page.remove_listener("close", on_close)
-            page.remove_listener("crash", on_close)
-            if cdp is not None and on_paused is not None:
-                cdp.remove_listener("Fetch.requestPaused", on_paused)
 
             async def close_watchers() -> None:
-                try:
-                    async with asyncio.timeout(self.cleanup_timeout):
-                        for task in tuple(tasks):
+                async def remove_listeners() -> None:
+                    failed = False
+                    listeners = [
+                        (page, "response", on_response),
+                        (page, "framenavigated", on_frame),
+                        (page, "close", on_close),
+                        (page, "crash", on_close),
+                    ]
+                    if cdp is not None and on_paused is not None:
+                        listeners.append((cdp, "Fetch.requestPaused", on_paused))
+                    for emitter, name, callback in listeners:
+                        try:
+                            emitter.remove_listener(name, callback)
+                        except Exception:
+                            failed = True
+                    if failed:
+                        raise RuntimeError("Listener removal failed")
+
+                await self.cleanup.run("listeners_remove", remove_listeners())
+                snapshot = tuple(tasks)
+
+                async def cancel_watchers() -> None:
+                    for task in snapshot:
+                        if not task.done() and not task.cancelling():
                             task.cancel()
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                        if cdp is not None:
-                            try:
-                                await cdp.detach()
-                            except PlaywrightError:
-                                pass
-                except TimeoutError as exc:
-                    raise BrowserCollectionError(
-                        "BROWSER_UNAVAILABLE", "无法在期限内释放页面监听资源"
-                    ) from exc
+
+                async def join_watchers() -> None:
+                    if snapshot:
+                        await asyncio.wait(snapshot)
+
+                await self.cleanup.run("watchers_cancel", cancel_watchers())
+                await self.cleanup.run("watchers_join", join_watchers())
+                if cdp is not None:
+                    await self.cleanup.run("cdp_detach", cdp.detach())
 
             await finish_cleanup(asyncio.create_task(close_watchers()))
 
@@ -485,17 +558,3 @@ def _product_page(url: str) -> bool:
         return navigation_target(url).item_id is not None
     except BrowserCollectionError:
         return False
-
-
-async def finish_cleanup[T](task: asyncio.Task[T]) -> T:
-    """Finish owned cleanup even if its caller is cancelled repeatedly."""
-    cancelled = False
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            cancelled = True
-    result = task.result()
-    if cancelled:
-        raise asyncio.CancelledError
-    return result

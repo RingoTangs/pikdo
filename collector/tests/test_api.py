@@ -280,3 +280,34 @@ def test_only_two_business_api_paths_and_current_models():
         assert client.get(COLLECT_PATH).status_code == 405
         assert not hasattr(client.app.state, "resolver") and not hasattr(client.app.state, "xhs")
         assert service.calls == []
+
+
+def test_461_plus_cleanup_failure_returns_safe_503_and_blocks_followups(caplog):
+    from playwright.async_api import Error as PlaywrightError
+    from test_browser_manager import build
+
+    manager, pw = build(cleanup_timeout=0.01)
+    original_create = pw.browser.new_context
+
+    async def create():
+        context = await original_create()
+        context.page.responses[0].status = 461
+        context.close_error = PlaywrightError(
+            "https://xhslink.com/m/test?token=SECRET Cookie=SECRET"
+        )
+        return context
+
+    pw.browser.new_context = create
+    with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
+        for _ in range(2):
+            response = client.post(
+                COLLECT_PATH, json={"input": "https://xhslink.com/m/test?token=SECRET"}
+            )
+            assert response.status_code == 503
+            assert response.json()["code"] == "BROWSER_ACCESS_RESTRICTED"
+            assert set(response.json()) == {"code", "message"}
+            assert "SECRET" not in response.text
+        assert client.get("/health").json() == {"status": "ok"}
+        assert len(pw.browser.contexts) == 1 and pw.browser.close_calls == 1
+        assert manager.state == "restricted"
+    assert pw.stopped and "SECRET" not in caplog.text

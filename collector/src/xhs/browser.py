@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from playwright.async_api import Browser, Playwright, async_playwright
-from playwright.async_api import Error as PlaywrightError
 
+from xhs.browser_cleanup import CleanupFailure, CleanupTracker, event
 from xhs.browser_collector import (
     BrowserCollectionError,
     BrowserProductCollector,
@@ -68,6 +68,28 @@ class BrowserManager:
         self._lifecycle_lock = asyncio.Lock()
         self._stop_task: asyncio.Task | None = None
         self._close_task: asyncio.Task | None = None
+        self._resource_healthy = True
+        self._driver_stopped = False
+        self._retired_collectors: set[BrowserProductCollector] = set()
+        self.cleanup = CleanupTracker(
+            self.config.cleanup_timeout, "manager", self._on_manager_cleanup_failure
+        )
+
+    def _on_manager_cleanup_failure(self, failure: CleanupFailure) -> None:
+        self._resource_healthy = False
+        if self._state not in {"restricted", "stopping", "stopped"}:
+            self._set_state("unavailable")
+
+    def _set_state(self, state: str) -> None:
+        previous = self._state
+        self._state = state
+        if previous != state:
+            event(
+                "browser.manager.state_changed",
+                previous=previous,
+                state=state,
+                resource_healthy=self._resource_healthy,
+            )
 
     @property
     def state(self) -> str:
@@ -79,7 +101,7 @@ class BrowserManager:
                 return
             if self._state != "new":
                 raise BrowserCollectionError("BROWSER_UNAVAILABLE", "浏览器管理器不可重新启动")
-            self._state = "starting"
+            self._set_state("starting")
 
             async def initialize() -> None:
                 async with asyncio.timeout(self.config.navigation_timeout):
@@ -98,14 +120,14 @@ class BrowserManager:
             initialization = asyncio.create_task(initialize())
             try:
                 await asyncio.shield(initialization)
-                self._state = "ready"
+                self._set_state("ready")
             except BaseException as exc:
                 if not initialization.done():
                     try:
                         await finish_cleanup(initialization)
                     except (Exception, asyncio.CancelledError):
                         pass
-                self._state = "unavailable"
+                self._set_state("unavailable")
                 await finish_cleanup(asyncio.create_task(self._release_resources()))
                 if not isinstance(exc, Exception):
                     raise
@@ -114,8 +136,10 @@ class BrowserManager:
                 ) from None
 
     def _on_disconnected(self) -> None:
-        if self._state not in {"stopping", "stopped", "restricted"}:
+        if self._close_task is None and self._state not in {"stopping", "stopped", "restricted"}:
+            self._resource_healthy = False
             self._terminate("unavailable")
+            self._schedule_close()
 
     def _check_ready(self) -> None:
         if self._state == "ready" and (self._browser is None or not self._browser.is_connected()):
@@ -130,11 +154,30 @@ class BrowserManager:
     def _terminate(self, state: str, origin: asyncio.Task | None = None) -> None:
         if self._state in {"stopping", "stopped"}:
             return
+        if state == "unavailable":
+            self._resource_healthy = False
         if self._state != "restricted":
-            self._state = state
+            self._set_state(state)
         for task in tuple(self._workers):
             if task is not origin and not task.done() and not task.cancelling():
                 task.cancel()
+
+    def _on_cleanup_failure(
+        self, failure: CleanupFailure, origin: asyncio.Task, collector: BrowserProductCollector
+    ) -> None:
+        self._resource_healthy = False
+        event(
+            "browser.manager.resource_unhealthy",
+            warning=True,
+            collection_id=collector.collection_id,
+            state=self._state,
+            cleanup_error=failure.error_code,
+            stage=failure.stage,
+            outcome=failure.outcome,
+        )
+        self._retired_collectors.add(collector)
+        self._terminate("unavailable", origin)
+        self._schedule_close()
 
     async def collect(self, raw: str) -> BrowserProductResult:
         navigation_input(raw)  # Invalid inputs never allocate a Context or queue slot.
@@ -160,6 +203,7 @@ class BrowserManager:
 
     async def _run(self, raw: str) -> BrowserProductResult:
         acquired = False
+        collector = None
         try:
             try:
                 async with asyncio.timeout(self.config.queue_timeout):
@@ -175,6 +219,9 @@ class BrowserManager:
                 response_timeout=self.config.response_timeout,
                 cleanup_timeout=self.config.cleanup_timeout,
                 on_access_restricted=lambda: self._terminate("restricted", origin),
+                on_cleanup_failure=lambda failure: self._on_cleanup_failure(
+                    failure, origin, collector
+                ),
             )
             result = await collector.collect_with_browser(raw, self._browser)
             self._check_ready()
@@ -185,43 +232,55 @@ class BrowserManager:
             elif exc.code == "BROWSER_UNAVAILABLE":
                 self._terminate("unavailable", asyncio.current_task())
                 await self._close_browser()
-            else:
+            elif collector is None or not collector.cleanup.failures:
                 self._check_ready()
             raise
         finally:
-            if acquired:
-                self._semaphore.release()
+            try:
+                if not self._resource_healthy:
+                    await finish_cleanup(asyncio.create_task(self._close_browser()))
+            finally:
+                if acquired:
+                    self._semaphore.release()
 
-    async def _close_browser(self) -> None:
+    def _schedule_close(self) -> None:
         async def close() -> None:
             if self._browser is not None:
-                try:
-                    async with asyncio.timeout(self.config.cleanup_timeout):
-                        await self._browser.close()
-                except (PlaywrightError, TimeoutError):
-                    pass
+                closed = await self.cleanup.run("browser_close", self._browser.close())
+                if not closed and self._playwright is not None:
+                    self._driver_stopped = await self.cleanup.run(
+                        "playwright_stop", self._playwright.stop()
+                    )
+            for collector in tuple(self._retired_collectors):
+                await collector.reap_pending()
 
         if self._close_task is None:
             self._close_task = asyncio.create_task(close())
+
+    async def _close_browser(self) -> None:
+        self._schedule_close()
         await finish_cleanup(self._close_task)
 
     async def _release_resources(self) -> None:
-        try:
-            await self._close_browser()
-        finally:
-            if self._playwright is not None:
-                try:
-                    async with asyncio.timeout(self.config.cleanup_timeout):
-                        await self._playwright.stop()
-                except (PlaywrightError, TimeoutError):
-                    pass
+        await self._close_browser()
+        stopped = self._driver_stopped
+        if self._playwright is not None and not stopped:
+            stopped = await self.cleanup.run("playwright_stop", self._playwright.stop())
+            self._driver_stopped = stopped
+        for collector in tuple(self._retired_collectors):
+            await collector.reap_pending()
+            if not collector.cleanup.pending:
+                self._retired_collectors.discard(collector)
+        if stopped or not self.cleanup.failures:
             self._browser = None
             self._playwright = None
+        if self.cleanup.pending:
+            await self.cleanup.run("watchers_join", self.cleanup.join())
 
     async def stop(self) -> None:
         async def shutdown() -> None:
             async with self._lifecycle_lock:
-                self._state = "stopping"
+                self._set_state("stopping")
                 workers = tuple(self._workers)
                 for task in workers:
                     if not task.done() and not task.cancelling():
@@ -230,7 +289,7 @@ class BrowserManager:
                     # Context acquisition and cleanup are bounded by collector deadlines.
                     await asyncio.gather(*workers, return_exceptions=True)
                 await self._release_resources()
-                self._state = "stopped"
+                self._set_state("stopped")
 
         if self._stop_task is None:
             self._stop_task = asyncio.create_task(shutdown())

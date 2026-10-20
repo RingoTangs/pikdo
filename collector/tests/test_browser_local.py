@@ -6,7 +6,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,17 +35,20 @@ def local_site(monkeypatch):
         def do_GET(self):
             received.append(self.path)
             path = urlsplit(self.path).path
-            if path in ("/short", "/second", "/evil"):
+            if path in ("/short", "/second", "/evil", "/restricted"):
                 self.send_response(302)
                 target = {
                     "/short": f"/goods-detail/{ID}?xsec_token=LOCAL_SENTINEL&share_channel=test",
+                    "/restricted": f"/goods-detail/{ID}?test_response_status=461",
                     "/second": "/evil",
                     "/evil": "/blocked",
                 }[path]
                 self.send_header("Location", target)
                 self.end_headers()
             elif path == "/api":
-                self.send_response(200)
+                self.send_response(
+                    int(parse_qs(urlsplit(self.path).query).get("status", ["200"])[0])
+                )
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(RAW)
@@ -53,12 +56,13 @@ def local_site(monkeypatch):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
+                status = parse_qs(urlsplit(self.path).query).get("test_response_status", ["200"])[0]
                 html = (
                     "<html><body>Local product<script>"
                     'window.prior = localStorage.getItem("probe");'
                     'localStorage.setItem("probe", "stored");'
                     'document.cookie = "local_session=isolated";'
-                    f'fetch("/api?item_id={ID}")</script></body></html>'
+                    f'fetch("/api?item_id={ID}&status={status}")</script></body></html>'
                 )
                 self.wfile.write(html.encode())
 
@@ -72,7 +76,8 @@ def local_site(monkeypatch):
     def target(url):
         parts = urlsplit(url)
         if url.startswith(base + "/") and (
-            parts.path in {"/short", "/second", "/evil"} or parts.path == f"/goods-detail/{ID}"
+            parts.path in {"/short", "/second", "/evil", "/restricted"}
+            or parts.path == f"/goods-detail/{ID}"
         ):
             return SimpleNamespace(item_id=ID if parts.path.startswith("/goods-detail/") else None)
         return original_target(url)
@@ -104,7 +109,7 @@ def test_real_chromium_redirect_and_page_generated_response(local_site):
     assert result.raw_body == RAW and result.item_id == ID
     assert received[0] == "/short"
     assert f"/goods-detail/{ID}?xsec_token=LOCAL_SENTINEL&share_channel=test" in received
-    assert f"/api?item_id={ID}" in received
+    assert f"/api?item_id={ID}&status=200" in received
 
 
 def test_real_chromium_blocks_later_302_hop_before_request(local_site):
@@ -150,3 +155,21 @@ def test_fastapi_shared_browser_and_real_context_storage_isolation(local_site, m
     assert manager.state == "stopped" and not browser.is_connected()
     assert len(contexts) == 2 and contexts[0] is not contexts[1]
     assert previous_storage == [None, None]
+
+
+def test_real_chromium_461_restriction_closes_context_and_latches_manager(local_site, monkeypatch):
+    base, received = local_site
+    short = "https://xhslink.com/m/localrestricted"
+    monkeypatch.setattr(module, "navigation_input", lambda raw: (base + "/restricted", None))
+    manager = BrowserManager(BrowserConfig(navigation_timeout=10, response_timeout=5))
+    with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
+        browser = manager._browser
+        response = client.post("/api/v1/xhs/products/collect", json={"input": short})
+        assert response.status_code == 503
+        assert response.json()["code"] == "BROWSER_ACCESS_RESTRICTED"
+        assert manager.state == "restricted" and browser.contexts == []
+        before = list(received)
+        followup = client.post("/api/v1/xhs/products/collect", json={"input": ID})
+        assert followup.status_code == 503 and received == before
+        assert client.get("/health").json() == {"status": "ok"}
+    assert not browser.is_connected()
