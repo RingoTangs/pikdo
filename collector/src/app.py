@@ -1,11 +1,9 @@
 import logging
-import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import version
-from typing import Annotated
 
-from fastapi import FastAPI, Path, Request
+from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -16,7 +14,6 @@ from xhs.errors import BROWSER_HTTP_ERRORS, InputError
 from xhs.schemas import (
     CollectErrorResponse,
     CollectRequest,
-    ErrorResponse,
     Product,
 )
 
@@ -60,18 +57,11 @@ def create_app(
         code = exc.code if exc.code in BROWSER_HTTP_ERRORS else "BROWSER_NAVIGATION_FAILED"
         status, message = BROWSER_HTTP_ERRORS[code]
         content = {"code": code, "message": message}
-        if "item_id" in request.path_params:
-            content["item_id"] = request.path_params["item_id"].lower()
         return JSONResponse(status_code=status, content=content)
 
     @application.exception_handler(InputError)
     async def handle_input_error(request: Request, exc: InputError) -> JSONResponse:
-        if "item_id" in request.path_params:
-            error = ErrorResponse(
-                code=exc.code, message=exc.message, item_id=request.path_params["item_id"].lower()
-            )
-        else:
-            error = CollectErrorResponse(code=exc.code, message=exc.message)
+        error = CollectErrorResponse(code=exc.code, message=exc.message)
         return JSONResponse(status_code=422, content=error.model_dump())
 
     @application.exception_handler(RequestValidationError)
@@ -103,7 +93,7 @@ def create_app(
         COLLECT_PATH,
         response_model=Product,
         tags=["小红书商品"],
-        summary="通过分享文案或商品链接采集",
+        summary="统一采集单个商品",
         description=(
             "支持 1–8192 字符分享文案、xhslink 短链、官方 H5 商品 URL 或商品 ID。"
             "使用共享 Playwright Browser 和每请求独立的 Context，直接导航原始分享入口，"
@@ -126,48 +116,6 @@ def create_app(
     async def collect_product(body: CollectRequest, request: Request) -> Product:
         navigation_input(body.input)
         return (await request.app.state.browser_manager.collect(body.input)).product
-
-    @application.get(
-        "/api/v1/xhs/products/{item_id}",
-        response_model=Product,
-        tags=["小红书商品"],
-        summary="采集商品详情",
-        description=(
-            "通过商品 ID 使用 Playwright 正常打开规范 H5 页面，捕获页面自行产生的详情响应，返回标题、店铺、关联账号、价格、销量、"
-            "图片、规格、促销、物流、售后服务和购买功能等标准化信息。\n\n"
-            "商品 ID 必须为 24 位十六进制字符串，接受大小写并统一转为小写。"
-            "金额以十进制字符串返回；缺失销量为 null，含万、w 或 + 的销量标为近似值。"
-            "采集时间 fetched_at 使用 Asia/Shanghai 时区。\n\n"
-            "纯 ID 查询没有原始分享上下文，不能保证与分享短链采集效果一致。"
-            "不调用 HTTPX 详情 API，不自动兜底或重试。默认并发 1、等待许可 5 秒。"
-            "只有明确业务信号才判断商品不存在或下架，不根据请求失败、字段缺失或库存值推断。"
-            "错误包含 code、message 和 item_id。"
-        ),
-        response_description="标准化商品详情；可选信息缺失时为 null 或空数组。",
-        responses={
-            status: {"model": ErrorResponse, "description": description}
-            for status, description in {
-                404: "上游明确商品不存在、已下架或已失效。",
-                422: "商品 ID 不是 24 位十六进制字符串。",
-                502: "上游 HTTP、连接、JSON、业务状态或商品数据结构异常。",
-                503: "浏览器不可用、排队超时或访问受限；受限后停止后续浏览器采集。",
-                504: "上游商品详情请求超时。",
-            }.items()
-        },
-    )
-    async def product(
-        item_id: Annotated[
-            str,
-            Path(
-                description="24 位十六进制商品 ID，接受大写字母并统一转为小写；不是分享链接。",
-                examples=["6ab10b35d528ea0015dd1b7e"],
-            ),
-        ],
-        request: Request,
-    ) -> Product:
-        if re.fullmatch(r"[0-9a-fA-F]{24}", item_id) is None:
-            raise InputError("INVALID_ITEM_ID", "商品 ID 必须为 24 位十六进制字符串")
-        return (await request.app.state.browser_manager.collect(item_id.lower())).product
 
     return application
 

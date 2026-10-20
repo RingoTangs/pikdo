@@ -1,7 +1,7 @@
 # Pikdo Collector v0.4.0a1
 
 小红书单商品采集服务，使用 Python 3.13、uv、FastAPI、Playwright 和 Pydantic v2。
-Phase 2B 已统一为 Playwright-only 架构，不保留 HTTPX 上游采集、网络 Resolver、批量 CLI 或文件归档系统。
+Phase 2C 已收敛为统一 POST 商品采集接口，采用 Playwright-only 架构，不保留 HTTPX 上游采集、网络 Resolver、批量 CLI 或文件归档系统。
 
 ```text
 Input Parser
@@ -28,25 +28,34 @@ uv run dev
 生产环境必须安装匹配版本的 Chromium 二进制。系统 Chrome 可通过 BrowserConfig(channel="chrome") 使用。
 HTTPX 仅保留在开发依赖中供 FastAPI TestClient 使用；生产源码不导入 HTTPX 或 requests。
 
-## 三个业务 API
+## 两个业务 API
 
-| 方法 | 路径                             | 行为                                             |
-| ---- | -------------------------------- | ------------------------------------------------ |
-| GET  | `/health`                        | 本地存活检查，返回 `{"status":"ok"}`，不访问上游 |
-| GET  | `/api/v1/xhs/products/{item_id}` | 从规范 H5 商品页采集并返回 Product               |
-| POST | `/api/v1/xhs/products/collect`   | 从单条分享输入采集并返回 Product                 |
+| 方法 | 路径                           | 行为                                             |
+| ---- | ------------------------------ | ------------------------------------------------ |
+| GET  | `/health`                      | 本地存活检查，返回 `{"status":"ok"}`，不访问上游 |
+| POST | `/api/v1/xhs/products/collect` | 从单条分享输入采集并返回 Product                 |
 
 ```bash
 curl http://localhost:8000/health
-curl http://localhost:8000/api/v1/xhs/products/6ac8da9a7e1073000114c7ae
 curl -X POST http://localhost:8000/api/v1/xhs/products/collect \
   -H 'Content-Type: application/json' \
   -d '{"input":"https://xhslink.com/m/4tQFfvENODH"}'
 ```
 
-GET 商品 ID 必须为 24 位十六进制字符，接受大写并统一为小写。纯 ID 查询没有原始分享上下文，不能保证与分享入口的采集效果一致。
+POST 输入的纯商品 ID 必须为 24 位十六进制字符，接受大写并统一为小写。纯 ID 采集没有原始分享上下文，不能保证与分享入口的采集效果一致。
 POST 的 CollectRequest 支持完整小红书分享文案、xhslink 短链、官方 goods-detail H5 URL 或纯商品 ID。
 input 必须为 1–8192 字符字符串，拒绝额外字段。验证失败不会回显敏感文案。
+四类请求均使用同一 POST 接口，例如：
+
+```json
+{"input":"6ac8da9a7e1073000114c7ae"}
+{"input":"https://www.xiaohongshu.com/goods-detail/6ac8da9a7e1073000114c7ae"}
+{"input":"https://xhslink.com/m/4tQFfvENODH"}
+{"input":"【小红书】汤姆猫动漫闪卡 😆 53e39MN5Ck5 😆 https://xhslink.com/m/4tQFfvENODH 点击链接或者复制本条信息打开【小红书app】查看 CZ6281"}
+```
+
+以上每行是一个独立请求正文。Collector 无状态、实时执行采集，不提供商品数据库查询。
+旧商品 GET 接口已移除且没有兼容路由；未来商品查询、缓存和任务管理由 Java SaaS 服务负责，本阶段不实现。
 
 Input Parser 只做本地文本和 URL 校验，保留 HTML 实体、有限转义、分享文本、多目标拒绝及域名/端口/路径安全规则。
 短链由浏览器直接打开；合法 H5 或短链的原始查询参数保留在内存导航上下文中，不先解析成无参数 URL。
@@ -89,15 +98,14 @@ HTTP 401/403/429/461、登录、安全验证或明确访问限制会停止运行
 
 ## 错误结构
 
-GET 商品接口错误直接返回 `code`、`message`、`item_id`，没有 `detail` 外层：
+商品采集错误直接返回 `code`、`message`，没有 `detail` 外层：
 
 ```json
-{"code":"INVALID_ITEM_ID","message":"商品 ID 必须为 24 位十六进制字符串","item_id":"invalid"}
+{"code":"INVALID_PRODUCT_INPUT","message":"输入必须为 1–8192 字符的字符串"}
 ```
 
 | HTTP 状态 | code                                                                                            | 含义                           |
 | --------- | ----------------------------------------------------------------------------------------------- | ------------------------------ |
-| 422       | `INVALID_ITEM_ID`                                                                               | GET 商品 ID 非法               |
 | 422       | `INVALID_PRODUCT_INPUT` 等本地输入错误                                                          | collect 输入或请求结构非法     |
 | 404       | `BROWSER_PRODUCT_UNAVAILABLE`                                                                   | 仅上游明确不存在、下架或失效   |
 | 502       | `BROWSER_NAVIGATION_FAILED` / `BROWSER_UNTRUSTED_REDIRECT`                                      | 导航失败或不受信任跳转         |
@@ -108,7 +116,7 @@ GET 商品接口错误直接返回 `code`、`message`、`item_id`，没有 `deta
 
 标准化业务 JSON 与 URL 继续过滤敏感信息，并补充过滤 x-s、x-t 和原始分享追踪参数；原始响应 bytes 不受影响。
 
-GET 错误包含 `code`、`message`、`item_id`；POST collect 错误只包含 `code`、`message`。
+POST collect 的所有采集错误只包含 `code`、`message`。
 请求失败、上游 HTTP 404、字段缺失和响应超时均不会推断商品下架。错误使用固定公开消息，不回显浏览器异常、凭据或分享文案。
 
 ## 返回字段
@@ -320,7 +328,7 @@ PIKDO_LOCAL_BROWSER_TESTS=1 uv run test tests/test_browser_local.py -v
 
 ## 模块与后续范围
 
-- `app.py`：三个业务 API、OpenAPI 和 Lifespan。
+- `app.py`：两个业务 API、OpenAPI 和 Lifespan。
 - `xhs/input_parser.py`：纯文本解析与可信 URL 校验。
 - `xhs/browser.py`、`browser_collector.py`：浏览器生命周期和单次页面采集。
 - `xhs/product_decoder.py`、`parser.py`、`domains.py`、`schemas.py`、`values.py`：解码、业务映射、模型和输出过滤。

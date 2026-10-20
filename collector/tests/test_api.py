@@ -11,7 +11,6 @@ from app import COLLECT_PATH, create_app
 from xhs.browser_collector import BrowserCollectionError
 from xhs.errors import BROWSER_HTTP_ERRORS
 
-PATH = f"/api/v1/xhs/products/{ITEM_ID}"
 VERSION = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"][
     "version"
 ]
@@ -24,7 +23,7 @@ def test_success_and_health(payload):
         assert client.get("/health").json() == {"status": "ok"}
         assert service.calls == []
         assert client.get("/docs").status_code == 200
-        response = client.get(f"/api/v1/xhs/products/{ITEM_ID.upper()}")
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID.upper()})
         assert response.status_code == 200
         result = response.json()
         assert result["item_id"] == ITEM_ID
@@ -32,8 +31,8 @@ def test_success_and_health(payload):
         assert result["sales"]["estimated_count"] == 23000
         assert result["sales"]["exact"] is False
         assert result["fetched_at"].endswith("+08:00")
-        assert client.get(PATH).status_code == 200
-        assert service.calls == [ITEM_ID, ITEM_ID]
+        assert client.post(COLLECT_PATH, json={"input": ITEM_ID}).status_code == 200
+        assert service.calls == [ITEM_ID.upper(), ITEM_ID]
     assert service.stopped
 
 
@@ -41,30 +40,23 @@ def test_success_and_health(payload):
 def test_invalid_id(item_id):
     service = FakeCollectionService()
     with TestClient(offline_app(service=service)) as client:
-        response = client.get(f"/api/v1/xhs/products/{item_id}")
+        response = client.post(COLLECT_PATH, json={"input": item_id})
     assert response.status_code == 422
-    assert response.json()["code"] == "INVALID_ITEM_ID"
-    assert set(response.json()) == {"code", "message", "item_id"}
+    assert response.json()["code"] == "INVALID_PRODUCT_INPUT"
+    assert set(response.json()) == {"code", "message"}
     assert service.calls == []
 
 
 @pytest.mark.parametrize("code", list(BROWSER_HTTP_ERRORS))
-@pytest.mark.parametrize("method", ["GET", "POST"])
-def test_browser_error_mapping_and_no_sensitive_details(code, method):
+def test_browser_error_mapping_and_no_sensitive_details(code):
     service = FakeCollectionService()
     service.error = BrowserCollectionError(code, "SECRET Cookie xsec_token=SECRET")
     with TestClient(offline_app(service=service)) as client:
-        response = (
-            client.get(PATH)
-            if method == "GET"
-            else client.post(COLLECT_PATH, json={"input": ITEM_ID})
-        )
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
         assert client.get("/health").json() == {"status": "ok"}
     assert response.status_code == BROWSER_HTTP_ERRORS[code][0]
     assert response.json()["code"] == code
-    assert set(response.json()) == (
-        {"code", "message", "item_id"} if method == "GET" else {"code", "message"}
-    )
+    assert set(response.json()) == {"code", "message"}
     assert "SECRET" not in response.text
 
 
@@ -128,7 +120,7 @@ def test_actual_decoder_business_and_json_errors(payload):
         ('{"success":false,"msg":"安全验证 SECRET"}'.encode(), 503, "BROWSER_ACCESS_RESTRICTED"),
     ]:
         with TestClient(offline_app(service=FakeCollectionService(body=body))) as client:
-            response = client.get(PATH)
+            response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
         assert response.status_code == expected and response.json()["code"] == code
         assert "SECRET" not in response.text
 
@@ -138,7 +130,7 @@ def test_delisted_button(payload):
         {"type": "unBuyableGoShop"}
     ]
     with TestClient(offline_app(service=FakeCollectionService(payload=payload))) as client:
-        response = client.get(PATH)
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
     assert response.status_code == 404 and response.json()["code"] == "BROWSER_PRODUCT_UNAVAILABLE"
 
 
@@ -157,13 +149,13 @@ def test_startup_failure_fails_fast_and_stops_service():
 def test_missing_sales_remains_null(payload):
     del payload["data"]["template_data"][0]["priceH5"]["itemAnalysisDataText"]
     with TestClient(offline_app(service=FakeCollectionService(payload=payload))) as client:
-        result = client.get(PATH).json()
+        result = client.post(COLLECT_PATH, json={"input": ITEM_ID}).json()
     assert result["sales"] == {"display": None, "estimated_count": None, "exact": None}
 
 
 def test_v02_api_serialization(payload):
     with TestClient(offline_app(service=FakeCollectionService(payload=payload))) as client:
-        response = client.get(PATH)
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
         assert client.get("/openapi.json").json()["info"]["version"] == VERSION
     assert response.status_code == 200
     result = response.json()
@@ -205,7 +197,7 @@ def test_v02_api_filters_sensitive_business_json(payload):
     }
     data["sellerH5"]["link"] = "https://example.com/shop?xsec_token=SECRET_TOKEN"
     with TestClient(offline_app(service=FakeCollectionService(payload=payload))) as client:
-        response = client.get(PATH)
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
     assert response.status_code == 200
     assert "SECRET_" not in response.text
     result = response.json()
@@ -223,14 +215,14 @@ def test_v02_numeric_json_precision():
         '"priceH5":{"dealPrice":{"price":9.99000000000000000000000001}}}]}}'
     )
     with TestClient(offline_app(service=FakeCollectionService(body=body.encode()))) as client:
-        result = client.get(PATH).json()
+        result = client.post(COLLECT_PATH, json={"input": ITEM_ID}).json()
     assert result["price"]["current"] == "9.99000000000000000000000001"
     assert result["pricing_details"]["deal_price"]["price"] == "9.99000000000000000000000001"
 
 
 def test_api_excludes_sensitive_parameters_from_original_fixture(payload):
     with TestClient(offline_app(service=FakeCollectionService(payload=payload))) as client:
-        response = client.get(PATH)
+        response = client.post(COLLECT_PATH, json={"input": ITEM_ID})
     assert response.status_code == 200
     assert "headerBarMainPopup" not in response.json()
     assert "xsec_token" not in response.text.lower()
@@ -250,16 +242,41 @@ def test_unknown_browser_error_does_not_echo_code_or_message():
     assert "SECRET" not in response.text
 
 
-def test_only_three_business_api_paths_and_current_models():
+def test_only_two_business_api_paths_and_current_models():
     service = FakeCollectionService()
-    with TestClient(offline_app(service=service)) as client:
+    application = offline_app(service=service)
+    with TestClient(application) as client:
         spec = client.get("/openapi.json").json()
         assert spec["info"]["version"] == VERSION
-        assert set(spec["paths"]) == {"/health", COLLECT_PATH, "/api/v1/xhs/products/{item_id}"}
-        assert "CollectRequest" in spec["components"]["schemas"]
-        assert not any(name.startswith("Resolve") for name in spec["components"]["schemas"])
+        assert set(spec["paths"]) == {"/health", COLLECT_PATH}
+        assert set(spec["paths"]["/health"]) == {"get"}
+        assert set(spec["paths"][COLLECT_PATH]) == {"post"}
+        operation = spec["paths"][COLLECT_PATH]["post"]
+        assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/CollectRequest"
+        }
+        assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/Product"
+        }
+        for status in (422, 404, 502, 503, 504):
+            assert operation["responses"][str(status)]["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/CollectErrorResponse"
+            }
+        schemas = spec["components"]["schemas"]
+        request = schemas["CollectRequest"]
+        assert request["required"] == ["input"]
+        assert request["additionalProperties"] is False
+        assert request["properties"]["input"]["type"] == "string"
+        assert request["properties"]["input"]["minLength"] == 1
+        assert request["properties"]["input"]["maxLength"] == 8192
+        assert "ErrorResponse" not in schemas
+        assert not any(name.startswith("Resolve") for name in schemas)
+        assert not any(
+            route.path == "/api/v1/xhs/products/{item_id}" for route in application.routes
+        )
+        assert client.get(f"/api/v1/xhs/products/{ITEM_ID}").status_code == 404
         response = client.post("/api/v1/xhs/products/resolve", json={"input": "SECRET"})
-        # The remaining GET /{item_id} route yields framework-default 405 for this method.
-        assert response.status_code == 405 and "SECRET" not in response.text
+        assert response.status_code == 404 and "SECRET" not in response.text
+        assert client.get(COLLECT_PATH).status_code == 405
         assert not hasattr(client.app.state, "resolver") and not hasattr(client.app.state, "xhs")
         assert service.calls == []

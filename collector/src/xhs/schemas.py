@@ -236,12 +236,6 @@ class Product(Model):
     metadata: Metadata = Field(default_factory=Metadata)
 
 
-class ErrorResponse(Model):
-    code: str
-    message: str
-    item_id: str
-
-
 class CollectRequest(Model):
     model_config = ConfigDict(strict=True, extra="forbid")
     input: str = Field(min_length=1, max_length=8192, repr=False)

@@ -141,7 +141,7 @@ def test_fastapi_shared_browser_and_real_context_storage_isolation(local_site, m
     with TestClient(create_app(browser_manager_factory=lambda: manager)) as client:
         browser = manager._browser
         first = client.post("/api/v1/xhs/products/collect", json={"input": short})
-        second = client.get(f"/api/v1/xhs/products/{ID}")
+        second = client.post("/api/v1/xhs/products/collect", json={"input": ID})
         assert first.status_code == second.status_code == 200
         assert first.json()["item_id"] == second.json()["item_id"] == ID
         assert "raw_body" not in first.json() and "LOCAL_SENTINEL" not in first.text
