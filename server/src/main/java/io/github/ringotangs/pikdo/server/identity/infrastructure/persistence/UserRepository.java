@@ -8,10 +8,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** Constructor-wired persistence boundary; transaction ownership remains with the caller. */
-public final class UserPersistenceAdapter {
+public final class UserRepository {
     private final UserMapper mapper;
 
-    public UserPersistenceAdapter(UserMapper mapper) {
+    public UserRepository(UserMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -24,7 +24,7 @@ public final class UserPersistenceAdapter {
 
     public Optional<User> findById(UserId id) {
         Objects.requireNonNull(id, "id");
-        return mapper.findById(id.value()).map(UserPersistenceAdapter::fromRow);
+        return mapper.findById(id.value()).map(UserRepository::fromRow);
     }
 
     public void updateStatus(User user) {

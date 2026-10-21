@@ -9,10 +9,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** Restores a binding without treating its existence as mailbox verification or authorization. */
-public final class AccountPersistenceAdapter {
+public final class AccountRepository {
     private final AccountMapper mapper;
 
-    public AccountPersistenceAdapter(AccountMapper mapper) {
+    public AccountRepository(AccountMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -30,13 +30,13 @@ public final class AccountPersistenceAdapter {
 
     public Optional<Account> findById(AccountId id) {
         Objects.requireNonNull(id, "id");
-        return mapper.findById(id.value()).map(AccountPersistenceAdapter::fromRow);
+        return mapper.findById(id.value()).map(AccountRepository::fromRow);
     }
 
     public Optional<Account> findByEmail(EmailAddress email) {
         Objects.requireNonNull(email, "email");
         return mapper.findByCanonicalAddress(email.getCanonicalAddress())
-                .map(AccountPersistenceAdapter::fromRow);
+                .map(AccountRepository::fromRow);
     }
 
     static Account fromRow(AccountRow row) {

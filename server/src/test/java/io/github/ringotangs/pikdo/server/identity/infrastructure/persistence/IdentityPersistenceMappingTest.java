@@ -21,7 +21,7 @@ class IdentityPersistenceMappingTest {
         var failure =
                 assertThrows(
                         IllegalStateException.class,
-                        () -> UserPersistenceAdapter.fromRow(new UserRow(ID, status, TIME, TIME)));
+                        () -> UserRepository.fromRow(new UserRow(ID, status, TIME, TIME)));
         assertNotNull(failure.getCause());
     }
 
@@ -29,26 +29,26 @@ class IdentityPersistenceMappingTest {
     void missingStoredUserIdentityIsNotSilentlyAccepted() {
         assertThrows(
                 IllegalStateException.class,
-                () -> UserPersistenceAdapter.fromRow(new UserRow(null, "ACTIVE", TIME, TIME)));
+                () -> UserRepository.fromRow(new UserRow(null, "ACTIVE", TIME, TIME)));
     }
 
     @Test
     void missingStoredUserStateIsNotSilentlyAccepted() {
         assertThrows(
                 IllegalStateException.class,
-                () -> UserPersistenceAdapter.fromRow(new UserRow(ID, null, TIME, TIME)));
+                () -> UserRepository.fromRow(new UserRow(ID, null, TIME, TIME)));
     }
 
     @Test
     void canonicalKeyMustAgreeWithTheOriginalEvenIfTheRowCameFromAnotherSource() {
         var row = new AccountRow(ID, ID, "Alice@Example.COM", "bob@example.com", TIME);
-        assertThrows(IllegalStateException.class, () -> AccountPersistenceAdapter.fromRow(row));
+        assertThrows(IllegalStateException.class, () -> AccountRepository.fromRow(row));
     }
 
     @Test
     void missingStoredBindingIdentityIsRejected() {
         var row = new AccountRow(null, ID, "alice@example.com", "alice@example.com", TIME);
-        assertThrows(IllegalStateException.class, () -> AccountPersistenceAdapter.fromRow(row));
+        assertThrows(IllegalStateException.class, () -> AccountRepository.fromRow(row));
     }
 
     @Test

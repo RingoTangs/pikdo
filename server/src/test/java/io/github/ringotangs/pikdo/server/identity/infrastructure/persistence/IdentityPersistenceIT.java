@@ -46,8 +46,8 @@ class IdentityPersistenceIT {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactions;
 
-    private UserPersistenceAdapter userAdapter;
-    private AccountPersistenceAdapter accountAdapter;
+    private UserRepository userRepository;
+    private AccountRepository accountRepository;
 
     @TestConfiguration(proxyBeanMethods = false)
     static class DatabaseConfiguration {
@@ -62,9 +62,9 @@ class IdentityPersistenceIT {
     }
 
     @BeforeEach
-    void initializeAdaptersAndCheckIsolation() {
-        userAdapter = new UserPersistenceAdapter(users);
-        accountAdapter = new AccountPersistenceAdapter(accounts);
+    void initializeRepositoriesAndCheckIsolation() {
+        userRepository = new UserRepository(users);
+        accountRepository = new AccountRepository(accounts);
         for (String table :
                 List.of("identity_accounts", "identity_password_credentials", "identity_users")) {
             assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class));
@@ -81,7 +81,7 @@ class IdentityPersistenceIT {
     @Test
     void createsAndRestoresAnActiveUserAndItsDatabaseAuditFields() {
         var user = newUser();
-        var restored = userAdapter.findById(user.getId()).orElseThrow();
+        var restored = userRepository.findById(user.getId()).orElseThrow();
         var row = users.findById(user.getId().value()).orElseThrow();
         assertEquals(user.getId(), restored.getId());
         assertEquals(UserStatus.ACTIVE, restored.getStatus());
@@ -95,9 +95,10 @@ class IdentityPersistenceIT {
     void canCreateADisabledUserWithoutChangingTheDomainContract() {
         var user = User.create(new UserId(UUID.randomUUID()));
         user.disable();
-        userAdapter.insert(user);
+        userRepository.insert(user);
         assertEquals(
-                UserStatus.DISABLED, userAdapter.findById(user.getId()).orElseThrow().getStatus());
+                UserStatus.DISABLED,
+                userRepository.findById(user.getId()).orElseThrow().getStatus());
     }
 
     @Test
@@ -108,29 +109,31 @@ class IdentityPersistenceIT {
                 "UPDATE identity_users SET updated_at = TIMESTAMPTZ '2000-01-01 00:00:00Z' WHERE id = ?",
                 user.getId().value());
         user.disable();
-        userAdapter.updateStatus(user);
-        var disabled = userAdapter.findById(user.getId()).orElseThrow();
+        userRepository.updateStatus(user);
+        var disabled = userRepository.findById(user.getId()).orElseThrow();
         assertEquals(UserStatus.DISABLED, disabled.getStatus());
         var after = users.findById(user.getId().value()).orElseThrow();
         assertEquals(before.createdAt().toInstant(), after.createdAt().toInstant());
         assertTrue(after.updatedAt().isAfter(OffsetDateTime.parse("2000-01-01T00:00:00Z")));
         disabled.restore();
-        userAdapter.updateStatus(disabled);
+        userRepository.updateStatus(disabled);
         assertEquals(
-                UserStatus.ACTIVE, userAdapter.findById(user.getId()).orElseThrow().getStatus());
+                UserStatus.ACTIVE, userRepository.findById(user.getId()).orElseThrow().getStatus());
     }
 
     @Test
     void queriesForAbsentRowsReturnEmptyAndStatusUpdatesDoNotPretendToSucceed() {
         var id = new UserId(UUID.randomUUID());
         assertTrue(users.findById(id.value()).isEmpty());
-        assertTrue(userAdapter.findById(id).isEmpty());
+        assertTrue(userRepository.findById(id).isEmpty());
         assertEquals(0, users.updateStatus(id.value(), "DISABLED"));
-        assertThrows(IllegalStateException.class, () -> userAdapter.updateStatus(User.create(id)));
+        assertThrows(
+                IllegalStateException.class, () -> userRepository.updateStatus(User.create(id)));
         var accountId = new AccountId(UUID.randomUUID());
         assertTrue(accounts.findById(accountId.value()).isEmpty());
-        assertTrue(accountAdapter.findById(accountId).isEmpty());
-        assertTrue(accountAdapter.findByEmail(EmailAddress.create("absent@example.com")).isEmpty());
+        assertTrue(accountRepository.findById(accountId).isEmpty());
+        assertTrue(
+                accountRepository.findByEmail(EmailAddress.create("absent@example.com")).isEmpty());
         assertTrue(credentials.findByUserId(id.value()).isEmpty());
         assertEquals(
                 0, credentials.updateIfVersionMatches(id.value(), 0, "test-only-hash", "test-v1"));
@@ -140,9 +143,9 @@ class IdentityPersistenceIT {
     void createsBindingAndQueriesItByIdAndCanonicalIdentity() {
         var user = newUser();
         var account = newAccount(user, "Alice+News@Example.COM");
-        var byId = accountAdapter.findById(account.getId()).orElseThrow();
+        var byId = accountRepository.findById(account.getId()).orElseThrow();
         var byEmail =
-                accountAdapter
+                accountRepository
                         .findByEmail(EmailAddress.create("alice+news@example.com"))
                         .orElseThrow();
         var row = accounts.findById(account.getId().value()).orElseThrow();
@@ -165,7 +168,7 @@ class IdentityPersistenceIT {
         var account = newAccount(newUser(), "Alice.Smith+News@Example.COM");
         assertEquals(
                 account.getId(),
-                accountAdapter
+                accountRepository
                         .findByEmail(EmailAddress.create("alice.smith+news@example.com"))
                         .orElseThrow()
                         .getId());
@@ -174,7 +177,7 @@ class IdentityPersistenceIT {
                         "alicesmith+news@example.com",
                         "alice.smith@example.com",
                         "alice.smith+news@example.org")) {
-            assertTrue(accountAdapter.findByEmail(EmailAddress.create(other)).isEmpty());
+            assertTrue(accountRepository.findByEmail(EmailAddress.create(other)).isEmpty());
         }
     }
 
@@ -182,15 +185,16 @@ class IdentityPersistenceIT {
     void duplicateUserAndBindingIdentitiesPropagateDatabaseErrors() {
         var user = newUser();
         assertThrows(
-                DuplicateKeyException.class, () -> userAdapter.insert(User.create(user.getId())));
+                DuplicateKeyException.class,
+                () -> userRepository.insert(User.create(user.getId())));
         var account = newAccount(user, "Alice@Example.COM");
-        assertThrows(DuplicateKeyException.class, () -> accountAdapter.insert(account));
+        assertThrows(DuplicateKeyException.class, () -> accountRepository.insert(account));
         var other = newUser();
         assertThrows(DuplicateKeyException.class, () -> newAccount(other, "alice@example.com"));
         assertThrows(DuplicateKeyException.class, () -> newAccount(user, "different@example.com"));
         assertEquals(
                 "Alice@Example.COM",
-                accountAdapter
+                accountRepository
                         .findById(account.getId())
                         .orElseThrow()
                         .getEmail()
@@ -239,7 +243,7 @@ class IdentityPersistenceIT {
         assertEquals("test-input-v1", row.passwordInputVersion());
         assertNotNull(row.createdAt());
         assertNotNull(row.updatedAt());
-        assertTrue(userAdapter.findById(user.getId()).isPresent());
+        assertTrue(userRepository.findById(user.getId()).isPresent());
         assertThrows(
                 DuplicateKeyException.class,
                 () -> credentials.insert(user.getId().value(), "other-test-hash", "test-input-v1"));
@@ -298,12 +302,12 @@ class IdentityPersistenceIT {
                                 .executeWithoutResult(
                                         status -> {
                                             var user = User.create(id);
-                                            userAdapter.insert(user);
+                                            userRepository.insert(user);
                                             credentials.insert(
                                                     id.value(), "test-only-hash", "test-input-v1");
                                             newAccount(user, "taken@example.com");
                                         }));
-        assertTrue(userAdapter.findById(id).isEmpty());
+        assertTrue(userRepository.findById(id).isEmpty());
         assertTrue(credentials.findByUserId(id.value()).isEmpty());
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
     }
@@ -333,7 +337,8 @@ class IdentityPersistenceIT {
         var user = newUser();
         var id = UUID.randomUUID();
         assertEquals(1, accounts.insert(id, user.getId().value(), "not-an-email", "not-an-email"));
-        assertThrows(IllegalStateException.class, () -> accountAdapter.findById(new AccountId(id)));
+        assertThrows(
+                IllegalStateException.class, () -> accountRepository.findById(new AccountId(id)));
     }
 
     @Test
@@ -361,13 +366,13 @@ class IdentityPersistenceIT {
         assertEquals(7, userId.value().version());
         assertEquals(7, accountId.value().version());
         assertNotEquals(userId.value(), accountId.value());
-        userAdapter.insert(User.create(userId));
+        userRepository.insert(User.create(userId));
         var account = Account.create(accountId, userId, EmailAddress.create("V7@Example.COM"));
-        accountAdapter.insert(account);
+        accountRepository.insert(account);
         assertEquals(1, credentials.insert(userId.value(), "test-v7-hash", "test-input-v1"));
 
-        assertEquals(userId, userAdapter.findById(userId).orElseThrow().getId());
-        var restored = accountAdapter.findById(accountId).orElseThrow();
+        assertEquals(userId, userRepository.findById(userId).orElseThrow().getId());
+        var restored = accountRepository.findById(accountId).orElseThrow();
         assertEquals(accountId, restored.getId());
         assertEquals(userId, restored.getUserId());
         assertEquals("V7@Example.COM", restored.getEmail().getOriginalAddress());
@@ -384,17 +389,19 @@ class IdentityPersistenceIT {
         var accountId = new AccountId(UUID.fromString("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"));
         assertEquals(4, userId.value().version());
         assertEquals(4, accountId.value().version());
-        userAdapter.insert(User.create(userId));
-        accountAdapter.insert(
+        userRepository.insert(User.create(userId));
+        accountRepository.insert(
                 Account.create(accountId, userId, EmailAddress.create("Legacy@Example.COM")));
         credentials.insert(userId.value(), "test-legacy-hash", "test-input-v1");
 
-        assertEquals(userId, userAdapter.findById(userId).orElseThrow().getId());
+        assertEquals(userId, userRepository.findById(userId).orElseThrow().getId());
         var restored =
-                accountAdapter.findByEmail(EmailAddress.create("legacy@example.com")).orElseThrow();
+                accountRepository
+                        .findByEmail(EmailAddress.create("legacy@example.com"))
+                        .orElseThrow();
         assertEquals(accountId, restored.getId());
         assertEquals(userId, restored.getUserId());
-        assertEquals(accountId, accountAdapter.findById(accountId).orElseThrow().getId());
+        assertEquals(accountId, accountRepository.findById(accountId).orElseThrow().getId());
         assertEquals(userId.value(), users.findById(userId.value()).orElseThrow().id());
         assertEquals(accountId.value(), accounts.findById(accountId.value()).orElseThrow().id());
         assertEquals(
@@ -417,7 +424,7 @@ class IdentityPersistenceIT {
 
     private User newUser() {
         var user = User.create(new UserId(UUID.randomUUID()));
-        userAdapter.insert(user);
+        userRepository.insert(user);
         return user;
     }
 
@@ -427,7 +434,7 @@ class IdentityPersistenceIT {
                         new AccountId(UUID.randomUUID()),
                         user.getId(),
                         EmailAddress.create(address));
-        accountAdapter.insert(account);
+        accountRepository.insert(account);
         return account;
     }
 }
