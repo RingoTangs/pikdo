@@ -1,3 +1,10 @@
+spring:
+  config:
+    import: optional:file:./config/application-dev-local.yml
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/pikdo
+    username: pikdo
+
 springdoc:
   api-docs:
     enabled: true

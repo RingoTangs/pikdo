@@ -16,7 +16,7 @@ Maven 坐标为 `io.github.ringotangs.pikdo:pikdo-server:0.0.1-SNAPSHOT`，启�
 
 ## 开发与运行
 
-在 `server/` 下执行，确保 `JAVA_HOME` 或 PATH 指向 JDK 21，并先按下节设置数据库环境变量：
+在 `server/` 下执行，确保 `JAVA_HOME` 或 PATH 指向 JDK 21，并按下节准备本地私有数据库配置（也可使用环境变量）：
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
@@ -51,7 +51,17 @@ java -jar target/pikdo-server-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 
 已有本地 PG 无需启动 Compose，更不要重建或删除已有容器和 Volume。在启动应用前确认目标数据库，检查 `identity_*` 表和 `flyway_schema_history` 是否已经存在。V1 只适用于全新、空的目标 Schema；已有对象冲突需人工确认迁移方案，不能 clean、自动 baseline 或改历史来掩盖。
 
-例如现有数据库为本机 `pikdo`，在启动 Java 的同一终端设置：
+dev Profile 默认连接 `jdbc:postgresql://127.0.0.1:5432/pikdo`，用户名为 `pikdo`。密码保存在 `server/config/application-dev-local.yml`，该文件被 Git 忽略，不进入 JAR。仅 dev 通过相对于工作目录的路径加载它，因此启动时工作目录须为 `server/`。本机文件已按开发数据库配置创建；新环境需自行创建：
+
+```yaml
+spring:
+  datasource:
+    password: "填写本机开发数据库密码"
+```
+
+准备后即可运行上方 dev 启动命令，无需每次导出密码。首次启动会自动执行既有 Flyway 迁移，请先核对目标数据库；不要将开发配置用于生产。默认和 prod 不加载该私有文件。
+
+标准环境变量优先于文件配置；连接其他数据库或在生产部署时，在启动 Java 的同一环境设置：
 
 ```bash
 export SPRING_DATASOURCE_URL='jdbc:postgresql://127.0.0.1:5432/pikdo'
@@ -62,7 +72,7 @@ export SPRING_DATASOURCE_PASSWORD
 
 `read` 时输入实际密码并回车，不把密码写入命令历史。URL 不含用户名或密码。生产通过部署环境或秘密管理注入这三个标准变量，不使用开发密码；跨网络连接按部署要求启用 TLS。连接池保留 Boot/Hikari 默认值，后续按负载实测调整；没有额外的大连接池设置。
 
-应用不自动加载根目录 `.env.database`，也不设置可用于生产的默认数据库密码。未配置 URL、连接失败或 Flyway 校验/迁移失败时启动失败。不要开启记录凭据、完整认证请求或 SQL 参数的调试日志。
+应用不自动加载根目录 `.env.database`，也不设置可用于生产的默认数据库密码。默认/prod 未配置 URL、dev 缺少有效凭据、连接失败或 Flyway 校验/迁移失败时启动失败。不要开启记录凭据、完整认证请求或 SQL 参数的调试日志。
 
 ### 可选：从零启动本地 PostgreSQL
 
@@ -83,7 +93,7 @@ docker compose --env-file .env.database ps
 docker compose --env-file .env.database exec postgres pg_isready -U pikdo -d pikdo
 ```
 
-Java 使用相同数据库名、用户名、密码及主机端口；仍须在 Java 终端导出上述 `SPRING_DATASOURCE_*` 变量。修改 Compose 环境变量不会更新已初始化 Volume 中的数据库账号或密码，遇到不一致时先检查原初始化配置，不能通过删除 Volume 修复。
+Java 使用相同数据库名、用户名、密码及主机端口；通过 dev 配置及本地私有文件提供，或在 Java 终端导出上述 `SPRING_DATASOURCE_*` 变量。修改 Compose 环境变量不会更新已初始化 Volume 中的数据库账号或密码，遇到不一致时先检查原初始化配置，不能通过删除 Volume 修复。
 
 安全停止并保留数据：
 
