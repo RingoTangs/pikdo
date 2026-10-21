@@ -1,8 +1,8 @@
 package io.github.ringotangs.pikdo.server.controller;
 
-import io.github.ringotangs.pikdo.server.exception.BusinessException;
-import io.github.ringotangs.pikdo.server.exception.CommonError;
-import io.github.ringotangs.pikdo.server.exception.ErrorResponse;
+import io.github.ringotangs.pikdo.server.shared.web.error.BusinessException;
+import io.github.ringotangs.pikdo.server.shared.web.error.CommonError;
+import io.github.ringotangs.pikdo.server.shared.web.error.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;

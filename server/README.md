@@ -116,8 +116,11 @@ docker compose --env-file .env.database stop
 ## 基础设施与源码
 
 - `Application.java`：启动入口，使用根包默认组件扫描。
-- `config/`：Request ID Filter 及 Servlet 分派注册、未知异常兜底和启动日志。
-- `exception/`：公共错误定义、业务异常、固定错误响应及国际化消息解析。
+- `bootstrap/`：应用启动日志。
+- `identity/domain/`：身份领域对象；`identity/infrastructure/persistence/`：身份持久化实现。
+- `shared/id/`：共享业务 ID 生成。
+- `shared/web/request/`：Request ID Filter 及 Servlet 分派注册。
+- `shared/web/error/`：公共错误定义、业务异常、固定错误响应、国际化消息解析及未知异常兜底。
 - `src/main/resources/`：应用配置及中英文错误消息。
 - `src/test/`：基础设施回归测试和显式导入的 Controller Fixture；Fixture 不进入生产 JAR，也不会随 dev Profile 自动加载。
 
@@ -129,7 +132,7 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 User/Account 两个具体 Persistence Adapter。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/infrastructure/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 User/Account 两个具体 Persistence Adapter。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；User Adapter 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - AccountMapper：创建、按 ID/规范化邮箱查询；Account Adapter 从原始地址重建 EmailAddress 并核对派生键，不替换已保存的原始拼写。

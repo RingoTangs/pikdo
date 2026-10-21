@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import io.github.ringotangs.pikdo.server.config.RequestIdFilter;
+import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdFilter;
 
 import org.slf4j.MDC;
 import org.springframework.http.MediaType;

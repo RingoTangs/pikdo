@@ -5,8 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import io.github.ringotangs.pikdo.server.config.RequestIdFilter;
 import io.github.ringotangs.pikdo.server.controller.ExampleController;
+import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdFilter;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
