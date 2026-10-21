@@ -10,6 +10,8 @@ import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailIdentifier;
 import io.github.ringotangs.pikdo.server.identity.domain.IdentityType;
 import io.github.ringotangs.pikdo.server.identity.domain.LoginIdentifier;
+import io.github.ringotangs.pikdo.server.identity.domain.PasswordCredential;
+import io.github.ringotangs.pikdo.server.identity.domain.PasswordCredentialRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.PhoneIdentifier;
 import io.github.ringotangs.pikdo.server.identity.domain.PhoneNumber;
 import io.github.ringotangs.pikdo.server.identity.domain.User;
@@ -59,6 +61,7 @@ class IdentityPersistenceIT {
 
     private UserRepository userRepository;
     private AccountRepository accountRepository;
+    private PasswordCredentialRepository credentialRepository;
 
     @TestConfiguration(proxyBeanMethods = false)
     static class DatabaseConfiguration {
@@ -77,6 +80,7 @@ class IdentityPersistenceIT {
         // Mapper 使用生产扫描规则；Repository 仍手动装配，不额外注册 Spring Bean。
         userRepository = new UserRepositoryImpl(users);
         accountRepository = new AccountRepositoryImpl(accounts);
+        credentialRepository = new PasswordCredentialRepositoryImpl(credentials);
         for (String table :
                 List.of("identity_accounts", "identity_password_credentials", "identity_users")) {
             assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class));
@@ -645,6 +649,192 @@ class IdentityPersistenceIT {
         assertTrue(accounts.findByIdentifier("EMAIL", "alice@example.com' OR '1'='1").isEmpty());
         assertTrue(accounts.findByIdentifier("PHONE", "alice@example.com").isEmpty());
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
+    }
+
+    @Test
+    void credentialRepositoryCreatesRestoresAndEnforcesOneCredentialPerUser() {
+        var user = newUser();
+        assertTrue(credentialRepository.findByUserId(user.getId()).isEmpty());
+        String hash = "test-hash'); DROP TABLE identity_users; --";
+        var initial = PasswordCredential.create(user.getId(), hash, "test-v1");
+        credentialRepository.insert(initial);
+        var stored = credentialRepository.findByUserId(user.getId()).orElseThrow();
+        assertCredential(stored, user.getId(), hash, 0, "test-v1");
+        assertEquals("PasswordCredential[redacted]", stored.toString());
+        assertThrows(DuplicateKeyException.class, () -> credentialRepository.insert(initial));
+        var missing = new UserId(UuidV7Generator.generate());
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        credentialRepository.insert(
+                                PasswordCredential.create(missing, "test-hash", "test-v1")));
+        assertTrue(credentialRepository.findByUserId(missing).isEmpty());
+        assertFalse(
+                credentialRepository.updateIfVersionMatches(
+                        missing, 0, "test-new-hash", "test-v2"));
+        assertTrue(userRepository.findById(user.getId()).isPresent());
+    }
+
+    @Test
+    void credentialRepositoryIsSharedByEmailAndPhoneBindings() {
+        var user = newUser();
+        var email = newAccount(user, "Shared@Example.COM");
+        var phone = bind(user, new PhoneIdentifier(PhoneNumber.create("+8613812345678")));
+        credentialRepository.insert(
+                PasswordCredential.create(user.getId(), "test-shared-hash", "test-v1"));
+        assertTrue(
+                credentialRepository.updateIfVersionMatches(
+                        user.getId(), 0, "test-updated-hash", "test-v2"));
+        for (var binding : List.of(email, phone)) {
+            var owner =
+                    accountRepository
+                            .findByIdentifier(binding.getIdentifier())
+                            .orElseThrow()
+                            .getUserId();
+            assertCredential(
+                    credentialRepository.findByUserId(owner).orElseThrow(),
+                    user.getId(),
+                    "test-updated-hash",
+                    1,
+                    "test-v2");
+        }
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM identity_password_credentials", Long.class));
+    }
+
+    @Test
+    void credentialRepositoryUpdatesOnlyTheExpectedVersionAndPreservesAuditFieldsOnConflict() {
+        var user = newUser();
+        var initial = PasswordCredential.create(user.getId(), "test-original-hash", "test-v1");
+        credentialRepository.insert(initial);
+        jdbc.update(
+                "UPDATE identity_password_credentials SET updated_at = TIMESTAMPTZ '2000-01-01 00:00:00Z' WHERE user_id = ?",
+                user.getId().value());
+        var before = credentials.findByUserId(user.getId().value()).orElseThrow();
+        assertTrue(
+                credentialRepository.updateIfVersionMatches(
+                        user.getId(), 0, "test-new-hash", "test-v2"));
+        var updated = credentialRepository.findByUserId(user.getId()).orElseThrow();
+        assertCredential(updated, user.getId(), "test-new-hash", 1, "test-v2");
+        assertCredential(initial, user.getId(), "test-original-hash", 0, "test-v1");
+        var row = credentials.findByUserId(user.getId().value()).orElseThrow();
+        assertEquals(before.createdAt().toInstant(), row.createdAt().toInstant());
+        assertTrue(row.updatedAt().isAfter(before.updatedAt()));
+        assertFalse(
+                credentialRepository.updateIfVersionMatches(
+                        user.getId(), 0, "test-stale-hash", "test-v3"));
+        assertEquals(row, credentials.findByUserId(user.getId().value()).orElseThrow());
+        assertTrue(
+                credentialRepository.updateIfVersionMatches(
+                        user.getId(), 1, "test-next-hash", "test-v3"));
+        assertCredential(
+                credentialRepository.findByUserId(user.getId()).orElseThrow(),
+                user.getId(),
+                "test-next-hash",
+                2,
+                "test-v3");
+    }
+
+    @Test
+    void credentialRepositoryInsertAndUpdateParticipateInTheCallerTransaction() {
+        var user = newUser();
+        new TransactionTemplate(transactions)
+                .executeWithoutResult(
+                        status -> {
+                            credentialRepository.insert(
+                                    PasswordCredential.create(
+                                            user.getId(), "test-rolled-back-hash", "test-v1"));
+                            assertTrue(credentialRepository.findByUserId(user.getId()).isPresent());
+                            status.setRollbackOnly();
+                        });
+        assertTrue(credentialRepository.findByUserId(user.getId()).isEmpty());
+        credentialRepository.insert(
+                PasswordCredential.create(user.getId(), "test-original-hash", "test-v1"));
+        var before = credentials.findByUserId(user.getId().value()).orElseThrow();
+        new TransactionTemplate(transactions)
+                .executeWithoutResult(
+                        status -> {
+                            assertTrue(
+                                    credentialRepository.updateIfVersionMatches(
+                                            user.getId(), 0, "test-rolled-back-hash", "test-v2"));
+                            assertCredential(
+                                    credentialRepository.findByUserId(user.getId()).orElseThrow(),
+                                    user.getId(),
+                                    "test-rolled-back-hash",
+                                    1,
+                                    "test-v2");
+                            status.setRollbackOnly();
+                        });
+        assertEquals(before, credentials.findByUserId(user.getId().value()).orElseThrow());
+        assertCredential(
+                credentialRepository.findByUserId(user.getId()).orElseThrow(),
+                user.getId(),
+                "test-original-hash",
+                0,
+                "test-v1");
+    }
+
+    @Test
+    void credentialRepositoryConcurrentUpdatesHaveExactlyOneWinner() throws Exception {
+        var user = newUser();
+        credentialRepository.insert(
+                PasswordCredential.create(user.getId(), "test-original-hash", "test-v1"));
+        var start = new CyclicBarrier(2);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var first =
+                    workers.submit(() -> competeForCredential(user.getId(), start, "test-hash-a"));
+            var second =
+                    workers.submit(() -> competeForCredential(user.getId(), start, "test-hash-b"));
+            assertEquals(1, first.get(30, TimeUnit.SECONDS) + second.get(30, TimeUnit.SECONDS));
+        }
+        var restored = credentialRepository.findByUserId(user.getId()).orElseThrow();
+        assertEquals(1, restored.getAuthenticationVersion());
+        assertTrue(List.of("test-hash-a", "test-hash-b").contains(restored.getPasswordHash()));
+        assertEquals("test-v2", restored.getPasswordInputVersion());
+    }
+
+    @Test
+    void credentialRepositoryRejectsLegacyBlankFieldsRatherThanInventingValidState() {
+        // 原 SQL 允许这些历史字符串，但新增领域边界不应把空白凭据当成有效状态。
+        var first = newUser();
+        credentials.insert(first.getId().value(), " ", "test-v1");
+        assertThrows(
+                IllegalStateException.class,
+                () -> credentialRepository.findByUserId(first.getId()));
+        var second = newUser();
+        credentials.insert(second.getId().value(), "test-hash", " ");
+        assertThrows(
+                IllegalStateException.class,
+                () -> credentialRepository.findByUserId(second.getId()));
+    }
+
+    private int competeForCredential(UserId userId, CyclicBarrier start, String hash) {
+        try {
+            start.await(10, TimeUnit.SECONDS);
+        } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+        }
+        return new TransactionTemplate(transactions)
+                .execute(
+                        status ->
+                                credentialRepository.updateIfVersionMatches(
+                                                userId, 0, hash, "test-v2")
+                                        ? 1
+                                        : 0);
+    }
+
+    private static void assertCredential(
+            PasswordCredential credential,
+            UserId userId,
+            String hash,
+            long version,
+            String inputVersion) {
+        assertEquals(userId, credential.getUserId());
+        assertEquals(hash, credential.getPasswordHash());
+        assertEquals(version, credential.getAuthenticationVersion());
+        assertEquals(inputVersion, credential.getPasswordInputVersion());
     }
 
     private int competeForBinding(User user, LoginIdentifier identifier, CyclicBarrier start) {

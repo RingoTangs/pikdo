@@ -132,14 +132,16 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl 两个实现。领域接口 UserRepository、AccountRepository 位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl 三个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 仅有 EmailIdentifier、PhoneIdentifier，分别包装 EmailAddress、PhoneNumber；User 的现有语义不变。
 - AccountMapper：创建、按 ID、按类型及规范化身份、按 UserId 查询；AccountRepository 提供 `insert`、`findById`、`findByIdentifier`、`findByUserId`，移除 `findByEmail`。User 查询返回 EMAIL、PHONE 顺序的列表，无绑定返回空列表。AccountRepositoryImpl 根据类型还原标识并核对派生键，未知类型或损坏记录拒绝还原，不替换原始邮箱拼写。
-- PasswordCredentialMapper：创建、按 UserId 查询、按预期认证版本更新；成功时 SQL 原子递增版本，返回 0 表示缺失或版本不匹配，不自动重试。初始版本及审计时间由数据库提供。
+- PasswordCredential：独立不可变领域对象，包含 UserId、passwordHash、authenticationVersion、passwordInputVersion，不加入 User/Account。`create` 初始化认证版本为 0，`restore` 还原已有非负版本。字符串不可为 null 或纯空白，不修剪内容、不校验哈希算法；`toString()` 固定脱敏。该对象不证明输入已正确哈希，也不实现认证或 rehash。
+- PasswordCredentialRepository：`insert(PasswordCredential)` 只接受版本 0；`findByUserId(UserId)` 返回 Optional；`updateIfVersionMatches(UserId, expectedVersion, passwordHash, passwordInputVersion)` 返回 boolean，true 表示成功，false 统一表示凭据不存在或版本不匹配，不额外查询、不自动重试。更新不改变原不可变对象，需重新查询新状态。
+- PasswordCredentialRepositoryImpl 复用原 PasswordCredentialMapper 和 Row。Mapper 仍按 UserId 查询、以一条 SQL 比较预期版本、更新密码并递增版本；初始版本及审计时间由数据库提供。未修改 SQL、V1、V2 或事务边界。
 
-RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean。查询缺失返回 Optional.empty；非法持久化状态/登录身份拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。凭据仍为独立持久化记录，不加入 User/Account；其字符串表示不输出哈希。
+RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
 
 调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 扩展为邮箱和手机号身份，后续应用层再按实际需要注册 RepositoryImpl。
 
@@ -162,7 +164,7 @@ RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器�
 
 该命令先执行普通测试，再通过 Failsafe 运行 `*IT`，实际启动 Testcontainers 的 PostgreSQL 18.6。需要可访问的 Docker daemon 和镜像下载网络；Docker 不可用会失败，不使用 H2/Mock，也不跳过后报告通过。不要配置指向开发或生产数据库的测试连接。
 
-测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 邮箱键、严格 E.164 号码、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。AccountMigrationIT 使用独立的一次性容器验证有历史记录的 V1 → V2 无损升级和空库全量迁移。基础探针 Mapper 显式注册于 src/test，不进入生产 JAR；新的 IdentityPersistenceIT 使用独立容器上下文，验证正式 Mapper 自动发现、Row/领域还原、凭据条件更新与并发竞争、真实约束和跨 Mapper 回滚。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
+测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 邮箱键、严格 E.164 号码、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。AccountMigrationIT 使用独立的一次性容器验证有历史记录的 V1 → V2 无损升级和空库全量迁移。基础探针 Mapper 显式注册于 src/test，不进入生产 JAR；新的 IdentityPersistenceIT 使用独立容器上下文，验证正式 Mapper 自动发现、Row/领域还原、凭据条件更新与并发竞争、真实约束和跨 Mapper 回滚。密码 Repository 测试另行验证领域还原、唯一凭据、双身份共享、条件更新、并发胜者和调用方事务回滚，并保留原 Mapper 测试。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
 
 常见问题：
 
