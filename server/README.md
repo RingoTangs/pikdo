@@ -117,6 +117,18 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 正式应用没有演示接口，也没有业务 Controller、Service 或 Repository。Swagger 测试中的示例操作仅来自测试 Fixture。
 
+## Identity Persistence（I4-1B）
+
+`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 User/Account 两个具体 Persistence Adapter。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+
+- UserMapper：创建、按 ID 查询、状态更新；User Adapter 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
+- AccountMapper：创建、按 ID/规范化邮箱查询；Account Adapter 从原始地址重建 EmailAddress 并核对派生键，不替换已保存的原始拼写。
+- PasswordCredentialMapper：创建、按 UserId 查询、按预期认证版本更新；成功时 SQL 原子递增版本，返回 0 表示缺失或版本不匹配，不自动重试。初始版本及审计时间由数据库提供。
+
+Adapter 是普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean，不建立无人使用的 Repository 接口。查询缺失返回 Optional.empty；非法持久化状态/邮箱拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。凭据仍为独立持久化记录，不加入 User/Account；其字符串表示不输出哈希。
+
+调用方负责 Spring 事务边界，Adapter 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 和领域契约保持不变，后续应用层再按实际需要注册 Adapter。
+
 ## 测试与格式化
 
 ```bash
@@ -136,7 +148,7 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 该命令先执行普通测试，再通过 Failsafe 运行 `*IT`，实际启动 Testcontainers 的 PostgreSQL 18.6。需要可访问的 Docker daemon 和镜像下载网络；Docker 不可用会失败，不使用 H2/Mock，也不跳过后报告通过。不要配置指向开发或生产数据库的测试连接。
 
-测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 键、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。测试 Mapper 显式注册于 src/test，不进入生产 JAR。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
+测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 键、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。基础探针 Mapper 显式注册于 src/test，不进入生产 JAR；新的 IdentityPersistenceIT 使用独立容器上下文，验证正式 Mapper 自动发现、Row/领域还原、凭据条件更新与并发竞争、真实约束和跨 Mapper 回滚。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
 
 常见问题：
 
@@ -146,4 +158,4 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 - 集成测试找不到 Docker：启动 Docker Desktop 并检查当前 Docker context/权限；不能改为跳过测试。
 - 镜像下载失败：检查 registry 网络；未执行的数据库测试应标为 BLOCKED/NOT RUN。
 
-本阶段仅完成数据库基础设施与最小 Schema，不提供 Identity Repository/业务 Mapper、登录认证、Spring Session JDBC、多租户、消息队列、任务调度、Collector HTTP Client 或商品业务接口。下一阶段为 I4-1B Identity Persistence，不由本工程自动启动。
+本阶段完成数据库基础及 Identity 基本持久化，不提供注册登录、邮件验证、密码重置、Spring Session JDBC、多租户、消息队列、任务调度、Collector HTTP Client 或商品业务接口。完成 I4-1B 后停止，不自动进入 I4-1C。
