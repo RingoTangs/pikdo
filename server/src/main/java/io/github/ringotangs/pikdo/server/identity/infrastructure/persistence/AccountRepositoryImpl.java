@@ -2,6 +2,7 @@ package io.github.ringotangs.pikdo.server.identity.infrastructure.persistence;
 
 import io.github.ringotangs.pikdo.server.identity.domain.Account;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountId;
+import io.github.ringotangs.pikdo.server.identity.domain.AccountRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 
@@ -9,13 +10,14 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** Restores a binding without treating its existence as mailbox verification or authorization. */
-public final class AccountRepository {
+public final class AccountRepositoryImpl implements AccountRepository {
     private final AccountMapper mapper;
 
-    public AccountRepository(AccountMapper mapper) {
+    public AccountRepositoryImpl(AccountMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
+    @Override
     public void insert(Account account) {
         Objects.requireNonNull(account, "account");
         if (mapper.insert(
@@ -28,15 +30,17 @@ public final class AccountRepository {
         }
     }
 
+    @Override
     public Optional<Account> findById(AccountId id) {
         Objects.requireNonNull(id, "id");
-        return mapper.findById(id.value()).map(AccountRepository::fromRow);
+        return mapper.findById(id.value()).map(AccountRepositoryImpl::fromRow);
     }
 
+    @Override
     public Optional<Account> findByEmail(EmailAddress email) {
         Objects.requireNonNull(email, "email");
         return mapper.findByCanonicalAddress(email.getCanonicalAddress())
-                .map(AccountRepository::fromRow);
+                .map(AccountRepositoryImpl::fromRow);
     }
 
     static Account fromRow(AccountRow row) {

@@ -2,19 +2,21 @@ package io.github.ringotangs.pikdo.server.identity.infrastructure.persistence;
 
 import io.github.ringotangs.pikdo.server.identity.domain.User;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
+import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 
 import java.util.Objects;
 import java.util.Optional;
 
 /** Constructor-wired persistence boundary; transaction ownership remains with the caller. */
-public final class UserRepository {
+public final class UserRepositoryImpl implements UserRepository {
     private final UserMapper mapper;
 
-    public UserRepository(UserMapper mapper) {
+    public UserRepositoryImpl(UserMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
+    @Override
     public void insert(User user) {
         Objects.requireNonNull(user, "user");
         if (mapper.insert(user.getId().value(), user.getStatus().name()) != 1) {
@@ -22,11 +24,13 @@ public final class UserRepository {
         }
     }
 
+    @Override
     public Optional<User> findById(UserId id) {
         Objects.requireNonNull(id, "id");
-        return mapper.findById(id.value()).map(UserRepository::fromRow);
+        return mapper.findById(id.value()).map(UserRepositoryImpl::fromRow);
     }
 
+    @Override
     public void updateStatus(User user) {
         Objects.requireNonNull(user, "user");
         if (mapper.updateStatus(user.getId().value(), user.getStatus().name()) != 1) {

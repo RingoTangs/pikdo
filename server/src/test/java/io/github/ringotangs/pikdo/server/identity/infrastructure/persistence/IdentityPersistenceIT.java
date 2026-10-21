@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.ringotangs.pikdo.server.Application;
 import io.github.ringotangs.pikdo.server.identity.domain.Account;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountId;
+import io.github.ringotangs.pikdo.server.identity.domain.AccountRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.domain.User;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
+import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
@@ -63,8 +65,8 @@ class IdentityPersistenceIT {
 
     @BeforeEach
     void initializeRepositoriesAndCheckIsolation() {
-        userRepository = new UserRepository(users);
-        accountRepository = new AccountRepository(accounts);
+        userRepository = new UserRepositoryImpl(users);
+        accountRepository = new AccountRepositoryImpl(accounts);
         for (String table :
                 List.of("identity_accounts", "identity_password_credentials", "identity_users")) {
             assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class));

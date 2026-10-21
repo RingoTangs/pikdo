@@ -132,15 +132,15 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/infrastructure/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 User/Account 两个具体 Repository。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/infrastructure/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl 两个实现。领域接口 UserRepository、AccountRepository 位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或 Infrastructure。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
-- UserMapper：创建、按 ID 查询、状态更新；UserRepository 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
-- AccountMapper：创建、按 ID/规范化邮箱查询；AccountRepository 从原始地址重建 EmailAddress 并核对派生键，不替换已保存的原始拼写。
+- UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
+- AccountMapper：创建、按 ID/规范化邮箱查询；AccountRepositoryImpl 从原始地址重建 EmailAddress 并核对派生键，不替换已保存的原始拼写。
 - PasswordCredentialMapper：创建、按 UserId 查询、按预期认证版本更新；成功时 SQL 原子递增版本，返回 0 表示缺失或版本不匹配，不自动重试。初始版本及审计时间由数据库提供。
 
-Repository 是普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean，不建立无人使用的 Repository 接口。查询缺失返回 Optional.empty；非法持久化状态/邮箱拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。凭据仍为独立持久化记录，不加入 User/Account；其字符串表示不输出哈希。
+RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean。查询缺失返回 Optional.empty；非法持久化状态/邮箱拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。凭据仍为独立持久化记录，不加入 User/Account；其字符串表示不输出哈希。
 
-调用方负责 Spring 事务边界，Repository 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 和领域契约保持不变，后续应用层再按实际需要注册 Repository。
+调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 和领域契约保持不变，后续应用层再按实际需要注册 RepositoryImpl。
 
 ## 测试与格式化
 
