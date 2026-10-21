@@ -117,7 +117,7 @@ docker compose --env-file .env.database stop
 
 - `Application.java`：启动入口，使用根包默认组件扫描。
 - `bootstrap/`：应用启动日志。
-- `identity/domain/`：身份领域对象；`identity/infrastructure/persistence/`：身份持久化实现。
+- `identity/domain/`：身份领域对象；`identity/persistence/`：身份持久化实现。
 - `shared/id/`：共享业务 ID 生成。
 - `shared/web/request/`：Request ID Filter 及 Servlet 分派注册。
 - `shared/web/error/`：公共错误定义、业务异常、固定错误响应、国际化消息解析及未知异常兜底。
@@ -132,7 +132,7 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/infrastructure/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl 两个实现。领域接口 UserRepository、AccountRepository 位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或 Infrastructure。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl 两个实现。领域接口 UserRepository、AccountRepository 位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - AccountMapper：创建、按 ID/规范化邮箱查询；AccountRepositoryImpl 从原始地址重建 EmailAddress 并核对派生键，不替换已保存的原始拼写。

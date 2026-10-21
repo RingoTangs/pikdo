@@ -1,4 +1,4 @@
-package io.github.ringotangs.pikdo.server.identity.infrastructure.persistence;
+package io.github.ringotangs.pikdo.server.identity.persistence;
 
 import io.github.ringotangs.pikdo.server.identity.domain.Account;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountId;

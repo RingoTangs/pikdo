@@ -1,4 +1,4 @@
-package io.github.ringotangs.pikdo.server.identity.infrastructure.persistence;
+package io.github.ringotangs.pikdo.server.identity.persistence;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
