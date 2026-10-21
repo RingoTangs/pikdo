@@ -30,6 +30,8 @@
         <jackson-bom.version>3.1.7</jackson-bom.version>
         <tomcat.version>11.0.26</tomcat.version>
         <logback.version>1.6.5</logback.version>
+        <postgresql.version>42.7.14</postgresql.version>
+        <asm.version>9.11.1</asm.version>
         <!-- 项目显式声明的依赖版本，其他依赖优先由 Boot 管理。 -->
         <java-uuid-generator.version>5.2.0</java-uuid-generator.version>
         <mybatis.version>4.1.0</mybatis.version>
@@ -39,6 +41,17 @@
         <spotless.version>3.10.4</spotless.version>
         <google-java-format.version>1.30.0</google-java-format.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 覆盖 accessors-smart 传递引入的 ASM 安全修复版本。 -->
+            <dependency>
+                <groupId>org.ow2.asm</groupId>
+                <artifactId>asm</artifactId>
+                <version>${asm.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- 标准健康检查；版本由 Spring Boot Parent 管理。 -->

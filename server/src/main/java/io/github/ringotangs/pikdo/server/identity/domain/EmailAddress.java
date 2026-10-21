@@ -71,7 +71,7 @@ public final class EmailAddress {
                 }
                 previousDot = true;
             } else {
-                if (!isAsciiLetterOrDigit(character)
+                if (isNotAsciiLetterOrDigit(character)
                         && LOCAL_SPECIAL_CHARACTERS.indexOf(character) < 0) {
                     throw new IllegalArgumentException("Invalid email local part character");
                 }
@@ -91,13 +91,13 @@ public final class EmailAddress {
         for (String label : labels) {
             if (label.isEmpty()
                     || label.length() > MAX_DOMAIN_LABEL_LENGTH
-                    || !isAsciiLetterOrDigit(label.charAt(0))
-                    || !isAsciiLetterOrDigit(label.charAt(label.length() - 1))) {
+                    || isNotAsciiLetterOrDigit(label.charAt(0))
+                    || isNotAsciiLetterOrDigit(label.charAt(label.length() - 1))) {
                 throw new IllegalArgumentException("Invalid email domain label");
             }
             for (int i = 0; i < label.length(); i++) {
                 char character = label.charAt(i);
-                if (!isAsciiLetterOrDigit(character) && character != '-') {
+                if (isNotAsciiLetterOrDigit(character) && character != '-') {
                     throw new IllegalArgumentException("Invalid email domain character");
                 }
             }
@@ -128,10 +128,10 @@ public final class EmailAddress {
         return true;
     }
 
-    private static boolean isAsciiLetterOrDigit(char character) {
-        return character >= 'A' && character <= 'Z'
+    private static boolean isNotAsciiLetterOrDigit(char character) {
+        return !(character >= 'A' && character <= 'Z'
                 || character >= 'a' && character <= 'z'
-                || character >= '0' && character <= '9';
+                || character >= '0' && character <= '9');
     }
 
     private static String foldAsciiCase(String address) {

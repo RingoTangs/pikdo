@@ -9,7 +9,7 @@ Pikdo 面向商家和电商运营的数据采集与分析 SaaS 平台的 Java �
 - springdoc OpenAPI / Swagger UI，JSpecify 包级空值约定。
 - Maven 3.9.x；推荐使用仓库内的 Maven Wrapper，当前固定为 3.9.15。
 - 原生 MyBatis Starter 4.1.0、Spring JDBC/DataSource/声明式事务、HikariCP。
-- PostgreSQL 18、Flyway；JDBC Driver、Flyway 与 Testcontainers 版本由 Boot BOM 管理。
+- PostgreSQL 18、Flyway；JDBC Driver 采用项目安全版本覆盖，Flyway 与 Testcontainers 版本由 Boot BOM 管理。
 - JUnit、MockMvc、Testcontainers PostgreSQL 和 Spotless（Google Java Format AOSP 风格）。
 
 Maven 坐标为 `io.github.ringotangs.pikdo:pikdo-server:0.0.1-SNAPSHOT`，启动类为 `io.github.ringotangs.pikdo.server.Application`。
