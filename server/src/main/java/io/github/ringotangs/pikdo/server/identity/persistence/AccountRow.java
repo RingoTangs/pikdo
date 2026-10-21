@@ -7,6 +7,7 @@ import java.util.UUID;
 public record AccountRow(
         UUID id,
         UUID userId,
-        String originalAddress,
-        String canonicalAddress,
+        String identityType,
+        String originalIdentifier,
+        String canonicalIdentifier,
         OffsetDateTime createdAt) {}

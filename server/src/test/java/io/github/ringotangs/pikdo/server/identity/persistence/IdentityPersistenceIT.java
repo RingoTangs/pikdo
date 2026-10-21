@@ -7,6 +7,11 @@ import io.github.ringotangs.pikdo.server.identity.domain.Account;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountId;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
+import io.github.ringotangs.pikdo.server.identity.domain.EmailIdentifier;
+import io.github.ringotangs.pikdo.server.identity.domain.IdentityType;
+import io.github.ringotangs.pikdo.server.identity.domain.LoginIdentifier;
+import io.github.ringotangs.pikdo.server.identity.domain.PhoneIdentifier;
+import io.github.ringotangs.pikdo.server.identity.domain.PhoneNumber;
 import io.github.ringotangs.pikdo.server.identity.domain.User;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
@@ -16,6 +21,10 @@ import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -95,7 +104,7 @@ class IdentityPersistenceIT {
 
     @Test
     void canCreateADisabledUserWithoutChangingTheDomainContract() {
-        var user = User.create(new UserId(UUID.randomUUID()));
+        var user = User.create(new UserId(UuidV7Generator.generate()));
         user.disable();
         userRepository.insert(user);
         assertEquals(
@@ -134,8 +143,7 @@ class IdentityPersistenceIT {
         var accountId = new AccountId(UUID.randomUUID());
         assertTrue(accounts.findById(accountId.value()).isEmpty());
         assertTrue(accountRepository.findById(accountId).isEmpty());
-        assertTrue(
-                accountRepository.findByEmail(EmailAddress.create("absent@example.com")).isEmpty());
+        assertTrue(accountRepository.findByIdentifier(email("absent@example.com")).isEmpty());
         assertTrue(credentials.findByUserId(id.value()).isEmpty());
         assertEquals(
                 0, credentials.updateIfVersionMatches(id.value(), 0, "test-only-hash", "test-v1"));
@@ -147,22 +155,21 @@ class IdentityPersistenceIT {
         var account = newAccount(user, "Alice+News@Example.COM");
         var byId = accountRepository.findById(account.getId()).orElseThrow();
         var byEmail =
-                accountRepository
-                        .findByEmail(EmailAddress.create("alice+news@example.com"))
-                        .orElseThrow();
+                accountRepository.findByIdentifier(email("alice+news@example.com")).orElseThrow();
         var row = accounts.findById(account.getId().value()).orElseThrow();
         assertEquals(account.getId(), byId.getId());
         assertEquals(user.getId(), byId.getUserId());
         assertEquals(account.getId(), byEmail.getId());
-        assertEquals("Alice+News@Example.COM", byEmail.getEmail().getOriginalAddress());
-        assertEquals("alice+news@example.com", byEmail.getEmail().getCanonicalAddress());
-        assertEquals(row, accounts.findByCanonicalAddress("alice+news@example.com").orElseThrow());
+        assertEquals("Alice+News@Example.COM", byEmail.getIdentifier().getOriginalIdentifier());
+        assertEquals("alice+news@example.com", byEmail.getIdentifier().getCanonicalIdentifier());
+        assertEquals(
+                row, accounts.findByIdentifier("EMAIL", "alice+news@example.com").orElseThrow());
         assertEquals(account.getId().value(), row.id());
         assertEquals(user.getId().value(), row.userId());
-        assertEquals("Alice+News@Example.COM", row.originalAddress());
-        assertEquals("alice+news@example.com", row.canonicalAddress());
+        assertEquals("Alice+News@Example.COM", row.originalIdentifier());
+        assertEquals("alice+news@example.com", row.canonicalIdentifier());
         assertNotNull(row.createdAt());
-        assertTrue(accounts.findByCanonicalAddress("ALICE+NEWS@example.com").isEmpty());
+        assertTrue(accounts.findByIdentifier("EMAIL", "ALICE+NEWS@example.com").isEmpty());
     }
 
     @Test
@@ -171,7 +178,7 @@ class IdentityPersistenceIT {
         assertEquals(
                 account.getId(),
                 accountRepository
-                        .findByEmail(EmailAddress.create("alice.smith+news@example.com"))
+                        .findByIdentifier(email("alice.smith+news@example.com"))
                         .orElseThrow()
                         .getId());
         for (String other :
@@ -179,7 +186,7 @@ class IdentityPersistenceIT {
                         "alicesmith+news@example.com",
                         "alice.smith@example.com",
                         "alice.smith+news@example.org")) {
-            assertTrue(accountRepository.findByEmail(EmailAddress.create(other)).isEmpty());
+            assertTrue(accountRepository.findByIdentifier(email(other)).isEmpty());
         }
     }
 
@@ -199,13 +206,13 @@ class IdentityPersistenceIT {
                 accountRepository
                         .findById(account.getId())
                         .orElseThrow()
-                        .getEmail()
-                        .getOriginalAddress());
+                        .getIdentifier()
+                        .getOriginalIdentifier());
     }
 
     @Test
     void invalidForeignKeysAreRejectedThroughRealMappers() {
-        var missing = User.create(new UserId(UUID.randomUUID()));
+        var missing = User.create(new UserId(UuidV7Generator.generate()));
         assertThrows(
                 DataIntegrityViolationException.class,
                 () -> newAccount(missing, "alice@example.com"));
@@ -226,6 +233,7 @@ class IdentityPersistenceIT {
                         accounts.insert(
                                 UUID.randomUUID(),
                                 user.getId().value(),
+                                "EMAIL",
                                 "Alice@example.com",
                                 "bob@example.com"));
         assertThrows(
@@ -338,7 +346,9 @@ class IdentityPersistenceIT {
     void aDatabaseRowOutsideTheFullEmailGrammarCannotBecomeADomainAccount() {
         var user = newUser();
         var id = UUID.randomUUID();
-        assertEquals(1, accounts.insert(id, user.getId().value(), "not-an-email", "not-an-email"));
+        assertEquals(
+                1,
+                accounts.insert(id, user.getId().value(), "EMAIL", "not-an-email", "not-an-email"));
         assertThrows(
                 IllegalStateException.class, () -> accountRepository.findById(new AccountId(id)));
     }
@@ -369,7 +379,7 @@ class IdentityPersistenceIT {
         assertEquals(7, accountId.value().version());
         assertNotEquals(userId.value(), accountId.value());
         userRepository.insert(User.create(userId));
-        var account = Account.create(accountId, userId, EmailAddress.create("V7@Example.COM"));
+        var account = Account.create(accountId, userId, email("V7@Example.COM"));
         accountRepository.insert(account);
         assertEquals(1, credentials.insert(userId.value(), "test-v7-hash", "test-input-v1"));
 
@@ -377,8 +387,8 @@ class IdentityPersistenceIT {
         var restored = accountRepository.findById(accountId).orElseThrow();
         assertEquals(accountId, restored.getId());
         assertEquals(userId, restored.getUserId());
-        assertEquals("V7@Example.COM", restored.getEmail().getOriginalAddress());
-        assertEquals("v7@example.com", restored.getEmail().getCanonicalAddress());
+        assertEquals("V7@Example.COM", restored.getIdentifier().getOriginalIdentifier());
+        assertEquals("v7@example.com", restored.getIdentifier().getCanonicalIdentifier());
         assertEquals(userId.value(), users.findById(userId.value()).orElseThrow().id());
         assertEquals(accountId.value(), accounts.findById(accountId.value()).orElseThrow().id());
         assertEquals(
@@ -392,15 +402,12 @@ class IdentityPersistenceIT {
         assertEquals(4, userId.value().version());
         assertEquals(4, accountId.value().version());
         userRepository.insert(User.create(userId));
-        accountRepository.insert(
-                Account.create(accountId, userId, EmailAddress.create("Legacy@Example.COM")));
+        accountRepository.insert(Account.create(accountId, userId, email("Legacy@Example.COM")));
         credentials.insert(userId.value(), "test-legacy-hash", "test-input-v1");
 
         assertEquals(userId, userRepository.findById(userId).orElseThrow().getId());
         var restored =
-                accountRepository
-                        .findByEmail(EmailAddress.create("legacy@example.com"))
-                        .orElseThrow();
+                accountRepository.findByIdentifier(email("legacy@example.com")).orElseThrow();
         assertEquals(accountId, restored.getId());
         assertEquals(userId, restored.getUserId());
         assertEquals(accountId, accountRepository.findById(accountId).orElseThrow().getId());
@@ -408,6 +415,261 @@ class IdentityPersistenceIT {
         assertEquals(accountId.value(), accounts.findById(accountId.value()).orElseThrow().id());
         assertEquals(
                 userId.value(), credentials.findByUserId(userId.value()).orElseThrow().userId());
+    }
+
+    @Test
+    void emailAndPhoneRoundTripShareOneUserOwnedPassword() {
+        var user = newUser();
+        assertTrue(accountRepository.findByUserId(user.getId()).isEmpty());
+        assertTrue(
+                accountRepository.findByUserId(new UserId(UuidV7Generator.generate())).isEmpty());
+        // Insert PHONE first to verify the documented query ordering.
+        var phone = bind(user, new PhoneIdentifier(PhoneNumber.create("+8613812345678")));
+        var email = newAccount(user, "Alice@Example.COM");
+        var bindings = accountRepository.findByUserId(user.getId());
+        assertEquals(
+                List.of(email.getId(), phone.getId()),
+                bindings.stream().map(Account::getId).toList());
+        assertEquals(
+                List.of(IdentityType.EMAIL, IdentityType.PHONE),
+                bindings.stream().map(a -> a.getIdentifier().getType()).toList());
+        for (var binding : bindings) {
+            assertEquals(user.getId(), binding.getUserId());
+            assertEquals(
+                    binding.getIdentifier(),
+                    accountRepository.findById(binding.getId()).orElseThrow().getIdentifier());
+            assertEquals(
+                    binding.getId(),
+                    accountRepository
+                            .findByIdentifier(binding.getIdentifier())
+                            .orElseThrow()
+                            .getId());
+            assertEquals(7, binding.getId().value().version());
+        }
+        assertEquals("Alice@Example.COM", bindings.get(0).getIdentifier().getOriginalIdentifier());
+        assertEquals("+8613812345678", bindings.get(1).getIdentifier().getOriginalIdentifier());
+        assertTrue(
+                accountRepository
+                        .findByIdentifier(new PhoneIdentifier(PhoneNumber.create("+14155552671")))
+                        .isEmpty());
+        assertEquals(1, credentials.insert(user.getId().value(), "test-shared-hash", "test-v1"));
+        var before = credentials.findByUserId(user.getId().value()).orElseThrow();
+        for (var binding : bindings) {
+            var owner =
+                    accountRepository
+                            .findByIdentifier(binding.getIdentifier())
+                            .orElseThrow()
+                            .getUserId();
+            assertEquals(before, credentials.findByUserId(owner.value()).orElseThrow());
+        }
+        assertThrows(
+                DuplicateKeyException.class,
+                () -> credentials.insert(user.getId().value(), "test-other-hash", "test-v1"));
+        assertEquals(
+                1,
+                credentials.updateIfVersionMatches(
+                        user.getId().value(), 0, "test-replacement-hash", "test-v2"));
+        for (var binding : bindings) {
+            var credential = credentials.findByUserId(binding.getUserId().value()).orElseThrow();
+            assertEquals("test-replacement-hash", credential.passwordHash());
+            assertEquals(1, credential.authenticationVersion());
+        }
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM identity_password_credentials", Long.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(IdentityType.class)
+    void eachTypeHasPerUserAndGlobalUniqueness(IdentityType type) {
+        var owner = newUser();
+        var other = newUser();
+        var first = identifier(type, false);
+        var stored = bind(owner, first);
+        assertThrows(DuplicateKeyException.class, () -> bind(owner, identifier(type, true)));
+        assertThrows(DuplicateKeyException.class, () -> bind(other, first));
+        assertEquals(
+                stored.getId(), accountRepository.findByIdentifier(first).orElseThrow().getId());
+        assertEquals(1, accountRepository.findByUserId(owner.getId()).size());
+        assertTrue(accountRepository.findByUserId(other.getId()).isEmpty());
+    }
+
+    @ParameterizedTest
+    @EnumSource(IdentityType.class)
+    void foreignKeysAndTransactionRollbackApplyToBothTypes(IdentityType type) {
+        var taken = identifier(type, false);
+        bind(newUser(), taken);
+        var missing = User.create(new UserId(UuidV7Generator.generate()));
+        assertThrows(
+                DataIntegrityViolationException.class, () -> bind(missing, identifier(type, true)));
+        assertThrows(
+                DuplicateKeyException.class,
+                () ->
+                        new TransactionTemplate(transactions)
+                                .executeWithoutResult(
+                                        status -> {
+                                            userRepository.insert(missing);
+                                            credentials.insert(
+                                                    missing.getId().value(),
+                                                    "test-rollback-hash",
+                                                    "test-v1");
+                                            bind(
+                                                    missing,
+                                                    identifier(
+                                                            type == IdentityType.EMAIL
+                                                                    ? IdentityType.PHONE
+                                                                    : IdentityType.EMAIL,
+                                                            true));
+                                            bind(missing, taken);
+                                        }));
+        assertTrue(userRepository.findById(missing.getId()).isEmpty());
+        assertTrue(accountRepository.findByUserId(missing.getId()).isEmpty());
+        assertTrue(credentials.findByUserId(missing.getId().value()).isEmpty());
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"EMAIL,false", "PHONE,false", "EMAIL,true", "PHONE,true"})
+    void concurrentBindingCommitsOnlyOneWinner(IdentityType type, boolean sameUser)
+            throws Exception {
+        var first = newUser();
+        var second = sameUser ? first : newUser();
+        var start = new CyclicBarrier(2);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var a = workers.submit(() -> competeForBinding(first, identifier(type, false), start));
+            // Same owner with distinct values exercises (user_id, identity_type).
+            var b =
+                    workers.submit(
+                            () -> competeForBinding(second, identifier(type, sameUser), start));
+            assertEquals(1, a.get(30, TimeUnit.SECONDS) + b.get(30, TimeUnit.SECONDS));
+        }
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
+        var row =
+                jdbc.queryForMap(
+                        "SELECT user_id, identity_type, canonical_identifier FROM identity_accounts");
+        assertEquals(type.name(), row.get("identity_type"));
+        assertTrue(
+                List.of(first.getId().value(), second.getId().value())
+                        .contains(row.get("user_id")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "",
+                "+",
+                "+1",
+                "+0123",
+                "13812345678",
+                "008613812345678",
+                "+86 13812345678",
+                "+86-13812345678",
+                "+１２３４",
+                "+1234567890123456",
+                "+123\n",
+                "+123\r",
+                "+123\t"
+            })
+    void databaseRejectsInvalidPhoneSyntaxEvenThroughDirectMapper(String value) {
+        var user = newUser();
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        accounts.insert(
+                                UuidV7Generator.generate(),
+                                user.getId().value(),
+                                "PHONE",
+                                value,
+                                value));
+    }
+
+    @Test
+    void databaseRequiresExplicitKnownTypeAndConsistentPhoneValues() {
+        var user = newUser();
+        for (String type : List.of("", "phone", "UNKNOWN")) {
+            assertThrows(
+                    DataIntegrityViolationException.class,
+                    () ->
+                            accounts.insert(
+                                    UuidV7Generator.generate(),
+                                    user.getId().value(),
+                                    type,
+                                    "+123",
+                                    "+123"));
+        }
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        accounts.insert(
+                                UuidV7Generator.generate(),
+                                user.getId().value(),
+                                null,
+                                "+123",
+                                "+123"));
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        accounts.insert(
+                                UuidV7Generator.generate(),
+                                user.getId().value(),
+                                "PHONE",
+                                "+123",
+                                "+124"));
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        jdbc.update(
+                                "INSERT INTO identity_accounts (id, user_id, original_identifier, canonical_identifier) VALUES (?, ?, '+123', '+123')",
+                                UuidV7Generator.generate(),
+                                user.getId().value()));
+        assertEquals(
+                1,
+                accounts.insert(
+                        UuidV7Generator.generate(),
+                        user.getId().value(),
+                        "PHONE",
+                        "+123456789012345",
+                        "+123456789012345"));
+    }
+
+    @Test
+    void identifierQueryTreatsSqlTextAsDataAndIncludesTheType() {
+        newAccount(newUser(), "Alice@Example.COM");
+        assertTrue(accounts.findByIdentifier("EMAIL", "alice@example.com' OR '1'='1").isEmpty());
+        assertTrue(accounts.findByIdentifier("PHONE", "alice@example.com").isEmpty());
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
+    }
+
+    private int competeForBinding(User user, LoginIdentifier identifier, CyclicBarrier start) {
+        try {
+            start.await(10, TimeUnit.SECONDS);
+        } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+        }
+        try {
+            new TransactionTemplate(transactions)
+                    .executeWithoutResult(status -> bind(user, identifier));
+            return 1;
+        } catch (DuplicateKeyException conflict) {
+            return 0;
+        }
+    }
+
+    private static LoginIdentifier identifier(IdentityType type, boolean different) {
+        return switch (type) {
+            case EMAIL -> email(different ? "other@example.com" : "Alice@Example.COM");
+            case PHONE ->
+                    new PhoneIdentifier(
+                            PhoneNumber.create(different ? "+14155552671" : "+8613812345678"));
+        };
+    }
+
+    private Account bind(User user, LoginIdentifier identifier) {
+        var account =
+                Account.create(new AccountId(UuidV7Generator.generate()), user.getId(), identifier);
+        accountRepository.insert(account);
+        return account;
     }
 
     private int compete(UserId user, CyclicBarrier start, String hash) {
@@ -425,7 +687,7 @@ class IdentityPersistenceIT {
     }
 
     private User newUser() {
-        var user = User.create(new UserId(UUID.randomUUID()));
+        var user = User.create(new UserId(UuidV7Generator.generate()));
         userRepository.insert(user);
         return user;
     }
@@ -433,10 +695,12 @@ class IdentityPersistenceIT {
     private Account newAccount(User user, String address) {
         var account =
                 Account.create(
-                        new AccountId(UUID.randomUUID()),
-                        user.getId(),
-                        EmailAddress.create(address));
+                        new AccountId(UuidV7Generator.generate()), user.getId(), email(address));
         accountRepository.insert(account);
         return account;
+    }
+
+    private static EmailIdentifier email(String value) {
+        return new EmailIdentifier(EmailAddress.create(value));
     }
 }

@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.*;
 import org.apache.ibatis.type.ObjectTypeHandler;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,18 +12,19 @@ import java.util.UUID;
 public interface AccountMapper {
     @Insert(
             """
-            INSERT INTO identity_accounts (id, user_id, original_address, canonical_address)
-            VALUES (#{id}, #{userId}, #{originalAddress}, #{canonicalAddress})
+            INSERT INTO identity_accounts (id, user_id, identity_type, original_identifier, canonical_identifier)
+            VALUES (#{id}, #{userId}, #{identityType}, #{originalIdentifier}, #{canonicalIdentifier})
             """)
     int insert(
             @Param("id") UUID id,
             @Param("userId") UUID userId,
-            @Param("originalAddress") String originalAddress,
-            @Param("canonicalAddress") String canonicalAddress);
+            @Param("identityType") String identityType,
+            @Param("originalIdentifier") String originalIdentifier,
+            @Param("canonicalIdentifier") String canonicalIdentifier);
 
     @Select(
             """
-            SELECT id, user_id, original_address, canonical_address, created_at
+            SELECT id, user_id, identity_type, original_identifier, canonical_identifier, created_at
             FROM identity_accounts
             WHERE id = #{id}
             """)
@@ -30,18 +32,31 @@ public interface AccountMapper {
     @ConstructorArgs({
         @Arg(column = "id", javaType = UUID.class, typeHandler = ObjectTypeHandler.class),
         @Arg(column = "user_id", javaType = UUID.class, typeHandler = ObjectTypeHandler.class),
-        @Arg(column = "original_address", javaType = String.class),
-        @Arg(column = "canonical_address", javaType = String.class),
+        @Arg(column = "identity_type", javaType = String.class),
+        @Arg(column = "original_identifier", javaType = String.class),
+        @Arg(column = "canonical_identifier", javaType = String.class),
         @Arg(column = "created_at", javaType = OffsetDateTime.class)
     })
     Optional<AccountRow> findById(@Param("id") UUID id);
 
     @Select(
             """
-            SELECT id, user_id, original_address, canonical_address, created_at
+            SELECT id, user_id, identity_type, original_identifier, canonical_identifier, created_at
             FROM identity_accounts
-            WHERE canonical_address = #{canonicalAddress}
+            WHERE identity_type = #{identityType} AND canonical_identifier = #{canonicalIdentifier}
             """)
     @ResultMap("accountRow")
-    Optional<AccountRow> findByCanonicalAddress(@Param("canonicalAddress") String canonicalAddress);
+    Optional<AccountRow> findByIdentifier(
+            @Param("identityType") String identityType,
+            @Param("canonicalIdentifier") String canonicalIdentifier);
+
+    @Select(
+            """
+            SELECT id, user_id, identity_type, original_identifier, canonical_identifier, created_at
+            FROM identity_accounts
+            WHERE user_id = #{userId}
+            ORDER BY identity_type
+            """)
+    @ResultMap("accountRow")
+    List<AccountRow> findByUserId(@Param("userId") UUID userId);
 }

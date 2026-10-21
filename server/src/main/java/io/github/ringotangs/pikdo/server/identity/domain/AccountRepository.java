@@ -1,5 +1,6 @@
 package io.github.ringotangs.pikdo.server.identity.domain;
 
+import java.util.List;
 import java.util.Optional;
 
 /** Domain persistence contract; transaction ownership remains with the caller. */
@@ -8,5 +9,8 @@ public interface AccountRepository {
 
     Optional<Account> findById(AccountId id);
 
-    Optional<Account> findByEmail(EmailAddress email);
+    Optional<Account> findByIdentifier(LoginIdentifier identifier);
+
+    /** Returns EMAIL then PHONE, or an empty list when no bindings exist. */
+    List<Account> findByUserId(UserId userId);
 }

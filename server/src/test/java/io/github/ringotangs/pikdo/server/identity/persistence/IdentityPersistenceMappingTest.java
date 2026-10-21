@@ -2,8 +2,11 @@ package io.github.ringotangs.pikdo.server.identity.persistence;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.ringotangs.pikdo.server.identity.domain.*;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.OffsetDateTime;
@@ -41,13 +44,13 @@ class IdentityPersistenceMappingTest {
 
     @Test
     void canonicalKeyMustAgreeWithTheOriginalEvenIfTheRowCameFromAnotherSource() {
-        var row = new AccountRow(ID, ID, "Alice@Example.COM", "bob@example.com", TIME);
+        var row = new AccountRow(ID, ID, "EMAIL", "Alice@Example.COM", "bob@example.com", TIME);
         assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
     }
 
     @Test
     void missingStoredBindingIdentityIsRejected() {
-        var row = new AccountRow(null, ID, "alice@example.com", "alice@example.com", TIME);
+        var row = new AccountRow(null, ID, "EMAIL", "alice@example.com", "alice@example.com", TIME);
         assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
     }
 
@@ -55,5 +58,46 @@ class IdentityPersistenceMappingTest {
     void credentialStringRepresentationDoesNotExposeItsHash() {
         var row = new PasswordCredentialRow(ID, "sensitive-test-hash", 0, "test-v1", TIME, TIME);
         assertFalse(row.toString().contains("sensitive-test-hash"));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "email", "UNKNOWN", "PASSWORD"})
+    void unknownOrMissingLoginTypesAreRejected(String type) {
+        var row = new AccountRow(ID, ID, type, "alice@example.com", "alice@example.com", TIME);
+        assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"+0123", "13812345678", "+86 13812345678", "+1234567890123456", "+123\n"})
+    void invalidStoredPhonesCannotBecomeDomainAccounts(String phone) {
+        var row = new AccountRow(ID, ID, "PHONE", phone, phone, TIME);
+        assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
+    }
+
+    @Test
+    void restoresTypedIdentifiersAndRejectsInconsistentOrMissingValues() {
+        var emailRow =
+                new AccountRow(ID, ID, "EMAIL", "Alice@Example.COM", "alice@example.com", TIME);
+        var restored = AccountRepositoryImpl.fromRow(emailRow);
+        assertEquals(
+                new EmailIdentifier(EmailAddress.create("Alice@Example.COM")),
+                restored.getIdentifier());
+        assertEquals("Alice@Example.COM", restored.getIdentifier().getOriginalIdentifier());
+        var phoneRow = new AccountRow(ID, ID, "PHONE", "+8613812345678", "+8613812345678", TIME);
+        var phone = AccountRepositoryImpl.fromRow(phoneRow);
+        assertEquals(
+                new PhoneIdentifier(PhoneNumber.create("+8613812345678")), phone.getIdentifier());
+        for (var row :
+                java.util.List.of(
+                        new AccountRow(ID, ID, "PHONE", "+8613812345678", "+8613812345679", TIME),
+                        new AccountRow(ID, null, "PHONE", "+8613812345678", "+8613812345678", TIME),
+                        new AccountRow(ID, ID, "PHONE", null, "+8613812345678", TIME),
+                        new AccountRow(ID, ID, "PHONE", "+8613812345678", null, TIME),
+                        new AccountRow(ID, ID, "EMAIL", null, "alice@example.com", TIME),
+                        new AccountRow(ID, ID, "EMAIL", "alice@example.com", null, TIME))) {
+            assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
+        }
     }
 }

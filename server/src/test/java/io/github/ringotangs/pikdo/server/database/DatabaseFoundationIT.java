@@ -149,16 +149,21 @@ class DatabaseFoundationIT {
     }
 
     @Test
-    void automaticMigrationHasOneSuccessfulV1AndIsRepeatable() {
+    void automaticMigrationHasSuccessfulV1AndV2AndIsRepeatable() {
         assertEquals(
                 1L,
                 jdbc.queryForObject(
                         "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success",
                         Long.class));
-        assertEquals(1, flyway.info().applied().length);
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM flyway_schema_history WHERE version = '2' AND success",
+                        Long.class));
+        assertEquals(2, flyway.info().applied().length);
         flyway.validate();
         assertEquals(0, flyway.migrate().migrationsExecuted);
-        assertEquals(1, flyway.info().applied().length);
+        assertEquals(2, flyway.info().applied().length);
         assertEquals(
                 3L,
                 jdbc.queryForObject(
@@ -176,8 +181,9 @@ class DatabaseFoundationIT {
                         "identity_users.updated_at:timestamp with time zone:NO",
                         "identity_accounts.id:uuid:NO",
                         "identity_accounts.user_id:uuid:NO",
-                        "identity_accounts.original_address:character varying:NO",
-                        "identity_accounts.canonical_address:character varying:NO",
+                        "identity_accounts.identity_type:character varying:NO",
+                        "identity_accounts.original_identifier:character varying:NO",
+                        "identity_accounts.canonical_identifier:character varying:NO",
                         "identity_accounts.created_at:timestamp with time zone:NO",
                         "identity_password_credentials.user_id:uuid:NO",
                         "identity_password_credentials.password_hash:text:NO",
@@ -193,12 +199,12 @@ class DatabaseFoundationIT {
         assertEquals(
                 254,
                 jdbc.queryForObject(
-                        "SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'identity_accounts' AND column_name = 'original_address'",
+                        "SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'identity_accounts' AND column_name = 'original_identifier'",
                         Integer.class));
         assertEquals(
                 "C",
                 jdbc.queryForObject(
-                        "SELECT collation_name FROM information_schema.columns WHERE table_name = 'identity_accounts' AND column_name = 'canonical_address'",
+                        "SELECT collation_name FROM information_schema.columns WHERE table_name = 'identity_accounts' AND column_name = 'canonical_identifier'",
                         String.class));
     }
 
@@ -215,13 +221,13 @@ class DatabaseFoundationIT {
         assertEquals(
                 email.getOriginalAddress(),
                 jdbc.queryForObject(
-                        "SELECT original_address FROM identity_accounts WHERE user_id = ?",
+                        "SELECT original_identifier FROM identity_accounts WHERE user_id = ?",
                         String.class,
                         user));
         assertEquals(
                 email.getCanonicalAddress(),
                 jdbc.queryForObject(
-                        "SELECT canonical_address FROM identity_accounts WHERE user_id = ?",
+                        "SELECT canonical_identifier FROM identity_accounts WHERE user_id = ?",
                         String.class,
                         user));
     }
@@ -277,7 +283,7 @@ class DatabaseFoundationIT {
     }
 
     @Test
-    void aUserCannotHaveTwoEffectiveAccounts() {
+    void aUserCannotHaveTwoEffectiveEmailAccounts() {
         var user = insertUser();
         insertAccount(user, EmailAddress.create("alice@example.com"));
         assertSqlState("23505", () -> insertAccount(user, EmailAddress.create("bob@example.com")));
@@ -304,7 +310,7 @@ class DatabaseFoundationIT {
         assertEquals(
                 "Alice@Example.COM",
                 jdbc.queryForObject(
-                        "SELECT original_address FROM identity_accounts WHERE user_id = ?",
+                        "SELECT original_identifier FROM identity_accounts WHERE user_id = ?",
                         String.class,
                         first));
     }
@@ -500,7 +506,7 @@ class DatabaseFoundationIT {
 
     private void insertAccount(UUID id, UUID user, String original, String canonical) {
         jdbc.update(
-                "INSERT INTO identity_accounts (id, user_id, original_address, canonical_address) VALUES (?, ?, ?, ?)",
+                "INSERT INTO identity_accounts (id, user_id, identity_type, original_identifier, canonical_identifier) VALUES (?, ?, 'EMAIL', ?, ?)",
                 id,
                 user,
                 original,

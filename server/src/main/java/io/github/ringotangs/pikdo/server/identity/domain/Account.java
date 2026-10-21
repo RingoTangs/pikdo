@@ -2,24 +2,27 @@ package io.github.ringotangs.pikdo.server.identity.domain;
 
 import java.util.Objects;
 
-/** Immutable information for one email binding instance, identified independently of the user. */
+/**
+ * Immutable information for one login identity binding instance, identified independently of the
+ * user.
+ */
 public final class Account {
     private final AccountId id;
     private final UserId userId;
-    private final EmailAddress email;
+    private final LoginIdentifier identifier;
 
-    private Account(AccountId id, UserId userId, EmailAddress email) {
+    private Account(AccountId id, UserId userId, LoginIdentifier identifier) {
         this.id = Objects.requireNonNull(id, "id");
         this.userId = Objects.requireNonNull(userId, "userId");
-        this.email = Objects.requireNonNull(email, "email");
+        this.identifier = Objects.requireNonNull(identifier, "identifier");
     }
 
     /**
-     * Constructs a domain object only; it does not verify user existence, mailbox ownership,
+     * Constructs a domain object only; it does not verify user existence, identity ownership,
      * uniqueness, authorization, or the binding's committed and currently effective status.
      */
-    public static Account create(AccountId id, UserId userId, EmailAddress email) {
-        return new Account(id, userId, email);
+    public static Account create(AccountId id, UserId userId, LoginIdentifier identifier) {
+        return new Account(id, userId, identifier);
     }
 
     public AccountId getId() {
@@ -30,7 +33,7 @@ public final class Account {
         return userId;
     }
 
-    public EmailAddress getEmail() {
-        return email;
+    public LoginIdentifier getIdentifier() {
+        return identifier;
     }
 }
