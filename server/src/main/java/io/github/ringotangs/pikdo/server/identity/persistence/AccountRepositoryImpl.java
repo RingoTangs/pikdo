@@ -10,6 +10,8 @@ import io.github.ringotangs.pikdo.server.identity.domain.LoginIdentifier;
 import io.github.ringotangs.pikdo.server.identity.domain.PhoneIdentifier;
 import io.github.ringotangs.pikdo.server.identity.domain.PhoneNumber;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
+import io.github.ringotangs.pikdo.server.identity.domain.Username;
+import io.github.ringotangs.pikdo.server.identity.domain.UsernameIdentifier;
 
 import java.util.List;
 import java.util.Objects;
@@ -69,6 +71,8 @@ public final class AccountRepositoryImpl implements AccountRepository {
                                 new EmailIdentifier(EmailAddress.create(row.originalIdentifier()));
                         case PHONE ->
                                 new PhoneIdentifier(PhoneNumber.create(row.originalIdentifier()));
+                        case USERNAME ->
+                                new UsernameIdentifier(Username.create(row.originalIdentifier()));
                     };
             // 从原始值重新派生身份键，防止原始表示与查询键指向不同身份。
             if (!identifier.getCanonicalIdentifier().equals(row.canonicalIdentifier())) {

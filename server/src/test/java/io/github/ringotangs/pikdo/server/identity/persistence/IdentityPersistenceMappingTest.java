@@ -102,4 +102,33 @@ class IdentityPersistenceMappingTest {
             assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
         }
     }
+
+    @Test
+    void usernameRowsRestoreTheirTypedIdentityAndOriginalSpelling() {
+        var row = new AccountRow(ID, ID, "USERNAME", "Alice_User", "alice_user", TIME);
+        var account = AccountRepositoryImpl.fromRow(row);
+        assertEquals(
+                new UsernameIdentifier(Username.create("Alice_User")), account.getIdentifier());
+        assertEquals("Alice_User", account.getIdentifier().getOriginalIdentifier());
+        assertEquals("alice_user", account.getIdentifier().getCanonicalIdentifier());
+        assertEquals(new AccountId(ID), account.getId());
+        assertEquals(new UserId(ID), account.getUserId());
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(
+            strings = {"ab", "1abc", "Ali-ce", "Alice\n", "admin", "SYSTEM", "support", "A用户名"})
+    void invalidStoredUsernamesAreRejected(String value) {
+        var row = new AccountRow(ID, ID, "USERNAME", value, value, TIME);
+        assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
+    }
+
+    @Test
+    void usernameCanonicalKeyMustMatchAndBePresent() {
+        for (String canonical : new String[] {null, "ALICE_USER", "other_user"}) {
+            var row = new AccountRow(ID, ID, "USERNAME", "Alice_User", canonical, TIME);
+            assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
+        }
+    }
 }

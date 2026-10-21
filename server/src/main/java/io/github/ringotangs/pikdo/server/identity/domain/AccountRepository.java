@@ -11,6 +11,6 @@ public interface AccountRepository {
 
     Optional<Account> findByIdentifier(LoginIdentifier identifier);
 
-    /** Returns EMAIL then PHONE, or an empty list when no bindings exist. */
+    /** Returns EMAIL, PHONE, then USERNAME, or an empty list when no bindings exist. */
     List<Account> findByUserId(UserId userId);
 }

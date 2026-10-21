@@ -105,13 +105,13 @@ docker compose --env-file .env.database stop
 
 ### Flyway 与表结构
 
-`src/main/resources/db/migration/` 保留原 V1，新增 V2 将有效邮箱绑定升级为 EMAIL/PHONE 两种登录身份。空数据库依次执行 V1 → V2；已有 V1 的数据库通过 V2 保留 AccountId、UserId、原始邮箱、规范化键及时间。应用启动自动迁移，已成功的迁移不重复执行；无 `schema.sql`、DDL Auto、自动 baseline 或 destructive clean。V2 重命名列，与新程序配套发布，不支持旧程序同时读写新 Schema。本次改造不执行开发数据库迁移。
+`src/main/resources/db/migration/` 保留原 V1、V2；V2 将邮箱绑定升级为 EMAIL/PHONE，V3 在原表上增加 USERNAME。空数据库依次执行 V1 → V2 → V3；已有 V1 的数据库通过 V2 保留 AccountId、UserId、原始邮箱、规范化键及时间。应用启动自动迁移，已成功的迁移不重复执行；无 `schema.sql`、DDL Auto、自动 baseline 或 destructive clean。V2 重命名列，与新程序配套发布，不支持旧程序同时读写新 Schema。本次改造不执行开发数据库迁移。
 
-可用数据库工具只读检查 `flyway_schema_history`，确认 version=1、2 均 success=true；集成测试同时执行 Flyway validate 和重复 migrate。时间使用 TIMESTAMPTZ，默认 CURRENT_TIMESTAMP；updated_at 的后续维护由写入方负责，不使用触发器。
+可用数据库工具只读检查 `flyway_schema_history`，确认 version=1、2、3 均 success=true；集成测试同时执行 Flyway validate 和重复 migrate。时间使用 TIMESTAMPTZ，默认 CURRENT_TIMESTAMP；updated_at 的后续维护由写入方负责，不使用触发器。
 
-Account 表保存 identity_type、original_identifier 和采用 C 比较规则的 canonical_identifier；类型为 EMAIL 或 PHONE。唯一约束 `(user_id, identity_type)` 保证每个 User 最多一个有效邮箱和一个有效手机号，`(identity_type, canonical_identifier)` 保证规范化身份不能跨 User 重复。EMAIL 继续用 ASCII translate CHECK 保证派生一致，完整邮箱语法仍由 EmailAddress 校验。PHONE 要求原始值与规范值相等，完整匹配 `\+[1-9][0-9]{1,14}`；仅接受已规范化的国际号码，不清理分隔符、不猜测国家区号，不判断号码实际分配或控制权。表仅保存有效关联，不定义解绑、历史或释放重用政策。
+Account 表保存 identity_type、original_identifier 和采用 C 比较规则的 canonical_identifier；类型为 EMAIL、PHONE 或 USERNAME。唯一约束 `(user_id, identity_type)` 保证每个 User 最多一个有效用户名、一个有效邮箱和一个有效手机号，`(identity_type, canonical_identifier)` 保证规范化身份不能跨 User 重复。EMAIL 继续用 ASCII translate CHECK 保证派生一致，完整邮箱语法仍由 EmailAddress 校验。PHONE 要求原始值与规范值相等，完整匹配 `\+[1-9][0-9]{1,14}`；仅接受已规范化的国际号码，不清理分隔符、不猜测国家区号，不判断号码实际分配或控制权。USERNAME 要求 3–32 个 ASCII 字符、英文字母开头，其余仅允许字母、数字、下划线；完整匹配 `[A-Za-z][A-Za-z0-9_]{2,31}`，保留原始拼写，以 ASCII 小写作为身份键，不 trim。大小写不敏感地精确禁止 `admin`、`system`、`support`，不禁止 `admin123` 等其他合法名称。V3 只扩展类型与用户名 CHECK，保留原有唯一约束、外键及 EMAIL/PHONE 数据。表仅保存有效关联，不定义解绑、历史或释放重用政策。
 
-邮箱和手机号绑定引用同一 UserId，共享以该 UserId 为主键的一条密码凭据；Account 不保存密码或验证码。密码凭据引用 UserId，authentication_version 默认 0 且非负。password_input_version 必填且非空，仅保留未来输入处理策略标识；本阶段不批准 NFC、密码策略或具体版本名称。算法参数保留在未来编码哈希中，不重复存储，不实现密码验证。
+用户名、邮箱和手机号绑定引用同一 UserId，共享以该 UserId 为主键的一条密码凭据；Account 不保存密码或验证码。密码凭据引用 UserId，authentication_version 默认 0 且非负。password_input_version 必填且非空，仅保留未来输入处理策略标识；本阶段不批准 NFC、密码策略或具体版本名称。算法参数保留在未来编码哈希中，不重复存储，不实现密码验证。
 
 ## 基础设施与源码
 
@@ -135,15 +135,15 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl 三个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
-- Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 仅有 EmailIdentifier、PhoneIdentifier，分别包装 EmailAddress、PhoneNumber；User 的现有语义不变。
-- AccountMapper：创建、按 ID、按类型及规范化身份、按 UserId 查询；AccountRepository 提供 `insert`、`findById`、`findByIdentifier`、`findByUserId`，移除 `findByEmail`。User 查询返回 EMAIL、PHONE 顺序的列表，无绑定返回空列表。AccountRepositoryImpl 根据类型还原标识并核对派生键，未知类型或损坏记录拒绝还原，不替换原始邮箱拼写。
+- Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 包含 UsernameIdentifier、EmailIdentifier、PhoneIdentifier，分别包装 Username、EmailAddress、PhoneNumber；User 的现有语义不变。
+- AccountMapper：创建、按 ID、按类型及规范化身份、按 UserId 查询；AccountRepository 提供 `insert`、`findById`、`findByIdentifier`、`findByUserId`，移除 `findByEmail`。User 查询返回 EMAIL、PHONE、USERNAME 顺序的列表，无绑定返回空列表。AccountRepositoryImpl 根据类型还原标识并核对派生键，未知类型或损坏记录拒绝还原，不替换原始邮箱拼写。
 - PasswordCredential：独立不可变领域对象，包含 UserId、passwordHash、authenticationVersion、passwordInputVersion，不加入 User/Account。`create` 初始化认证版本为 0，`restore` 还原已有非负版本。字符串不可为 null 或纯空白，不修剪内容、不校验哈希算法；`toString()` 固定脱敏。该对象不证明输入已正确哈希，也不实现认证或 rehash。
 - PasswordCredentialRepository：`insert(PasswordCredential)` 只接受版本 0；`findByUserId(UserId)` 返回 Optional；`updateIfVersionMatches(UserId, expectedVersion, passwordHash, passwordInputVersion)` 返回 boolean，true 表示成功，false 统一表示凭据不存在或版本不匹配，不额外查询、不自动重试。更新不改变原不可变对象，需重新查询新状态。
 - PasswordCredentialRepositoryImpl 复用原 PasswordCredentialMapper 和 Row。Mapper 仍按 UserId 查询、以一条 SQL 比较预期版本、更新密码并递增版本；初始版本及审计时间由数据库提供。未修改 SQL、V1、V2 或事务边界。
 
 RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
 
-调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 扩展为邮箱和手机号身份，后续应用层再按实际需要注册 RepositoryImpl。
+调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 支持用户名、邮箱和手机号身份，后续应用层再按实际需要注册 RepositoryImpl。
 
 ## 测试与格式化
 
@@ -164,7 +164,7 @@ RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器�
 
 该命令先执行普通测试，再通过 Failsafe 运行 `*IT`，实际启动 Testcontainers 的 PostgreSQL 18.6。需要可访问的 Docker daemon 和镜像下载网络；Docker 不可用会失败，不使用 H2/Mock，也不跳过后报告通过。不要配置指向开发或生产数据库的测试连接。
 
-测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 邮箱键、严格 E.164 号码、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。AccountMigrationIT 使用独立的一次性容器验证有历史记录的 V1 → V2 无损升级和空库全量迁移。基础探针 Mapper 显式注册于 src/test，不进入生产 JAR；新的 IdentityPersistenceIT 使用独立容器上下文，验证正式 Mapper 自动发现、Row/领域还原、凭据条件更新与并发竞争、真实约束和跨 Mapper 回滚。密码 Repository 测试另行验证领域还原、唯一凭据、双身份共享、条件更新、并发胜者和调用方事务回滚，并保留原 Mapper 测试。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
+测试容器的连接由 Spring `@ServiceConnection` 提供，随机密码和隔离数据库仅用于测试，生命周期随测试 ApplicationContext；不连接现有 PG、不使用本地 Named Volume。测试覆盖自动迁移与历史、类型/约束、ASCII 邮箱键、严格 E.164 号码、ASCII 用户名及保留名称、时间、MyBatis 探针参数绑定、并发冲突及 Spring 事务回滚。AccountMigrationIT 使用独立的一次性容器验证有历史记录的 V1 → V2 → V3 无损升级和空库全量迁移。基础探针 Mapper 显式注册于 src/test，不进入生产 JAR；新的 IdentityPersistenceIT 使用独立容器上下文，验证正式 Mapper 自动发现、Row/领域还原、凭据条件更新与并发竞争、真实约束和跨 Mapper 回滚。密码 Repository 测试另行验证领域还原、唯一凭据、多身份共享、条件更新、并发胜者和调用方事务回滚，并保留原 Mapper 测试。测试中哈希只是占位数据，不代表实现了密码算法或真实注册。
 
 常见问题：
 

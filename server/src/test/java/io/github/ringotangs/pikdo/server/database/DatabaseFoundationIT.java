@@ -149,7 +149,7 @@ class DatabaseFoundationIT {
     }
 
     @Test
-    void automaticMigrationHasSuccessfulV1AndV2AndIsRepeatable() {
+    void automaticMigrationHasSuccessfulV1V2AndV3AndIsRepeatable() {
         assertEquals(
                 1L,
                 jdbc.queryForObject(
@@ -160,10 +160,15 @@ class DatabaseFoundationIT {
                 jdbc.queryForObject(
                         "SELECT count(*) FROM flyway_schema_history WHERE version = '2' AND success",
                         Long.class));
-        assertEquals(2, flyway.info().applied().length);
+        assertEquals(3, flyway.info().applied().length);
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM flyway_schema_history WHERE version = '3' AND success",
+                        Long.class));
         flyway.validate();
         assertEquals(0, flyway.migrate().migrationsExecuted);
-        assertEquals(2, flyway.info().applied().length);
+        assertEquals(3, flyway.info().applied().length);
         assertEquals(
                 3L,
                 jdbc.queryForObject(

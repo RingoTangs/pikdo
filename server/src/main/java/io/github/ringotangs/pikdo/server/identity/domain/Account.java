@@ -8,7 +8,7 @@ import java.util.Objects;
  */
 public final class Account {
     private final AccountId id;
-    // 邮箱与手机号绑定指向同一 UserId，共享该用户的密码凭据；Account 不保存密码或验证码。
+    // 用户名、邮箱与手机号绑定指向同一 UserId，共享该用户的密码凭据；Account 不保存密码或验证码。
     private final UserId userId;
     private final LoginIdentifier identifier;
 

@@ -18,6 +18,8 @@ import io.github.ringotangs.pikdo.server.identity.domain.User;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
+import io.github.ringotangs.pikdo.server.identity.domain.Username;
+import io.github.ringotangs.pikdo.server.identity.domain.UsernameIdentifier;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import org.junit.jupiter.api.AfterEach;
@@ -506,7 +508,7 @@ class IdentityPersistenceIT {
 
     @ParameterizedTest
     @EnumSource(IdentityType.class)
-    void foreignKeysAndTransactionRollbackApplyToBothTypes(IdentityType type) {
+    void foreignKeysAndTransactionRollbackApplyToAllTypes(IdentityType type) {
         // 最后一次绑定故意冲突，前面写入的用户、凭据和另一类型绑定必须一起回滚。
         var taken = identifier(type, false);
         bind(newUser(), taken);
@@ -540,7 +542,14 @@ class IdentityPersistenceIT {
     }
 
     @ParameterizedTest
-    @CsvSource({"EMAIL,false", "PHONE,false", "EMAIL,true", "PHONE,true"})
+    @CsvSource({
+        "EMAIL,false",
+        "PHONE,false",
+        "USERNAME,false",
+        "EMAIL,true",
+        "PHONE,true",
+        "USERNAME,true"
+    })
     void concurrentBindingCommitsOnlyOneWinner(IdentityType type, boolean sameUser)
             throws Exception {
         var first = newUser();
@@ -551,7 +560,14 @@ class IdentityPersistenceIT {
             // Same owner with distinct values exercises (user_id, identity_type).
             var b =
                     workers.submit(
-                            () -> competeForBinding(second, identifier(type, sameUser), start));
+                            () ->
+                                    competeForBinding(
+                                            second,
+                                            type == IdentityType.USERNAME && !sameUser
+                                                    ? new UsernameIdentifier(
+                                                            Username.create("aLiCe_uSeR"))
+                                                    : identifier(type, sameUser),
+                                            start));
             assertEquals(1, a.get(30, TimeUnit.SECONDS) + b.get(30, TimeUnit.SECONDS));
         }
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
@@ -837,6 +853,162 @@ class IdentityPersistenceIT {
         assertEquals(inputVersion, credential.getPasswordInputVersion());
     }
 
+    @Test
+    void threeLoginIdentitiesAreOrderedAndShareOneCredential() {
+        var user = newUser();
+        // 故意乱序插入，验证查询排序独立于插入顺序和枚举声明顺序。
+        var username = bind(user, new UsernameIdentifier(Username.create("Alice_User")));
+        var phone = bind(user, new PhoneIdentifier(PhoneNumber.create("+8613812345678")));
+        var email = newAccount(user, "Alice@Example.COM");
+        var bindings = accountRepository.findByUserId(user.getId());
+        assertEquals(
+                List.of(email.getId(), phone.getId(), username.getId()),
+                bindings.stream().map(Account::getId).toList());
+        assertEquals(
+                List.of(IdentityType.EMAIL, IdentityType.PHONE, IdentityType.USERNAME),
+                bindings.stream().map(binding -> binding.getIdentifier().getType()).toList());
+        credentialRepository.insert(
+                PasswordCredential.create(user.getId(), "test-shared-hash", "test-v1"));
+        assertTrue(
+                credentialRepository.updateIfVersionMatches(
+                        user.getId(), 0, "test-updated-hash", "test-v2"));
+        for (var binding : bindings) {
+            var restored =
+                    accountRepository.findByIdentifier(binding.getIdentifier()).orElseThrow();
+            assertEquals(binding.getId(), restored.getId());
+            assertEquals(user.getId(), restored.getUserId());
+            assertEquals(7, restored.getId().value().version());
+            assertCredential(
+                    credentialRepository.findByUserId(restored.getUserId()).orElseThrow(),
+                    user.getId(),
+                    "test-updated-hash",
+                    1,
+                    "test-v2");
+        }
+        assertEquals(
+                1L,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM identity_password_credentials", Long.class));
+    }
+
+    @Test
+    void usernameQueriesPreserveOriginalAndRejectCrossUserCaseVariants() {
+        var owner = newUser();
+        var account = bind(owner, new UsernameIdentifier(Username.create("Alice_User")));
+        var variant = new UsernameIdentifier(Username.create("ALICE_USER"));
+        var restored = accountRepository.findByIdentifier(variant).orElseThrow();
+        assertEquals(account.getId(), restored.getId());
+        assertEquals(owner.getId(), restored.getUserId());
+        assertEquals("Alice_User", restored.getIdentifier().getOriginalIdentifier());
+        assertEquals("alice_user", restored.getIdentifier().getCanonicalIdentifier());
+        assertEquals(
+                restored.getIdentifier(),
+                accountRepository.findById(account.getId()).orElseThrow().getIdentifier());
+        assertThrows(DuplicateKeyException.class, () -> bind(newUser(), variant));
+        assertThrows(
+                DuplicateKeyException.class,
+                () -> bind(owner, new UsernameIdentifier(Username.create("Other_User"))));
+        assertTrue(
+                accountRepository
+                        .findByIdentifier(new UsernameIdentifier(Username.create("Missing_User")))
+                        .isEmpty());
+        assertTrue(accounts.findByIdentifier("USERNAME", "alice_user' OR '1'='1").isEmpty());
+        assertTrue(accounts.findByIdentifier("EMAIL", "alice_user").isEmpty());
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM identity_accounts", Long.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "",
+                "a",
+                "ab",
+                "1abc",
+                "_abc",
+                " Alice",
+                "Alice ",
+                "Ali ce",
+                "Ali-ce",
+                "Ali.ce",
+                "Alice@example.com",
+                "álîce",
+                "用户abc",
+                "Ａlice",
+                "Alice١",
+                "Alice\n",
+                "Alice\r",
+                "Alice\t",
+                "admin",
+                "ADMIN",
+                "AdMiN",
+                "system",
+                "SYSTEM",
+                "support",
+                "SUPPORT"
+            })
+    void databaseRejectsInvalidAndReservedUsernamesThroughDirectMapper(String value) {
+        var user = newUser();
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        accounts.insert(
+                                UuidV7Generator.generate(),
+                                user.getId().value(),
+                                "USERNAME",
+                                value,
+                                value.toLowerCase(java.util.Locale.ROOT)));
+    }
+
+    @Test
+    void databaseEnforcesUsernameLengthAndCanonicalDerivation() {
+        var user = newUser();
+        for (String canonical : List.of("ALICE_USER", "other_user", "alice_user\n")) {
+            assertThrows(
+                    DataIntegrityViolationException.class,
+                    () ->
+                            accounts.insert(
+                                    UuidV7Generator.generate(),
+                                    user.getId().value(),
+                                    "USERNAME",
+                                    "Alice_User",
+                                    canonical));
+        }
+        String tooLong = "a".repeat(33);
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () ->
+                        accounts.insert(
+                                UuidV7Generator.generate(),
+                                user.getId().value(),
+                                "USERNAME",
+                                tooLong,
+                                tooLong));
+        assertTrue(accountRepository.findByUserId(user.getId()).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "Abc",
+                "admin123",
+                "admin_",
+                "system1",
+                "support_team",
+                "root",
+                "administrator",
+                "Abcdefghijklmnopqrstuvwxyz123456"
+            })
+    void databaseAcceptsValidUsernameBoundariesAndNonreservedNames(String value) {
+        var user = newUser();
+        var id = UuidV7Generator.generate();
+        String canonical = value.toLowerCase(java.util.Locale.ROOT);
+        assertEquals(1, accounts.insert(id, user.getId().value(), "USERNAME", value, canonical));
+        var restored = accountRepository.findById(new AccountId(id)).orElseThrow();
+        assertEquals(value, restored.getIdentifier().getOriginalIdentifier());
+        assertEquals(canonical, restored.getIdentifier().getCanonicalIdentifier());
+        assertEquals(IdentityType.USERNAME, restored.getIdentifier().getType());
+    }
+
     private int competeForBinding(User user, LoginIdentifier identifier, CyclicBarrier start) {
         // 屏障让两个任务就绪后再竞争；每个任务使用独立事务，由唯一约束裁决胜者。
         try {
@@ -855,6 +1027,9 @@ class IdentityPersistenceIT {
 
     private static LoginIdentifier identifier(IdentityType type, boolean different) {
         return switch (type) {
+            case USERNAME ->
+                    new UsernameIdentifier(
+                            Username.create(different ? "Other_User" : "Alice_User"));
             case EMAIL -> email(different ? "other@example.com" : "Alice@Example.COM");
             case PHONE ->
                     new PhoneIdentifier(

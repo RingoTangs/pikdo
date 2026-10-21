@@ -57,7 +57,7 @@ class AccountMigrationIT {
                             "SELECT checksum FROM flyway_schema_history WHERE version = '1'",
                             Integer.class);
 
-            var latest = Flyway.configure().dataSource(source).load();
+            var latest = Flyway.configure().dataSource(source).target("2").load();
             assertEquals(1, latest.migrate().migrationsExecuted);
             assertEquals(
                     beforeUsers, jdbc.queryForList("SELECT * FROM identity_users ORDER BY id"));
@@ -98,21 +98,58 @@ class AccountMigrationIT {
             latest.validate();
             assertEquals(0, latest.migrate().migrationsExecuted);
             assertEquals(2, latest.info().applied().length);
+            var v2Accounts = jdbc.queryForList("SELECT * FROM identity_accounts ORDER BY id");
+            var v2Checksums =
+                    jdbc.queryForList(
+                            "SELECT version, checksum FROM flyway_schema_history WHERE version IN ('1', '2') ORDER BY installed_rank");
+            var v3 = Flyway.configure().dataSource(source).load();
+            assertEquals(1, v3.migrate().migrationsExecuted);
+            assertEquals(
+                    v2Accounts, jdbc.queryForList("SELECT * FROM identity_accounts ORDER BY id"));
+            assertEquals(
+                    beforeUsers, jdbc.queryForList("SELECT * FROM identity_users ORDER BY id"));
+            assertEquals(
+                    beforeCredentials,
+                    jdbc.queryForList(
+                            "SELECT * FROM identity_password_credentials ORDER BY user_id"));
+            assertEquals(
+                    v2Checksums,
+                    jdbc.queryForList(
+                            "SELECT version, checksum FROM flyway_schema_history WHERE version IN ('1', '2') ORDER BY installed_rank"));
+            jdbc.update(
+                    "INSERT INTO identity_accounts (id, user_id, identity_type, original_identifier, canonical_identifier) VALUES (?, ?, 'USERNAME', 'Alice_User', 'alice_user')",
+                    UuidV7Generator.generate(),
+                    user);
+            assertEquals(
+                    3L,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM identity_accounts WHERE user_id = ?",
+                            Long.class,
+                            user));
+            assertEquals(
+                    1L,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM identity_password_credentials WHERE user_id = ?",
+                            Long.class,
+                            user));
+            v3.validate();
+            assertEquals(0, v3.migrate().migrationsExecuted);
+            assertEquals(3, v3.info().applied().length);
         }
     }
 
     @Test
-    void emptyDatabaseExecutesBothMigrationsAndCanRepeatValidation() {
+    void emptyDatabaseExecutesAllThreeMigrationsAndCanRepeatValidation() {
         try (var postgres = container()) {
             postgres.start();
             var source =
                     new DriverManagerDataSource(
                             postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
             var flyway = Flyway.configure().dataSource(source).load();
-            assertEquals(2, flyway.migrate().migrationsExecuted);
+            assertEquals(3, flyway.migrate().migrationsExecuted);
             var jdbc = new JdbcTemplate(source);
             assertEquals(
-                    List.of("1", "2"),
+                    List.of("1", "2", "3"),
                     jdbc.queryForList(
                             "SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank",
                             String.class));
