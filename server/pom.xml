@@ -31,6 +31,7 @@
         <tomcat.version>11.0.26</tomcat.version>
         <logback.version>1.6.5</logback.version>
         <!-- 项目显式声明的依赖版本，其他依赖优先由 Boot 管理。 -->
+        <java-uuid-generator.version>5.2.0</java-uuid-generator.version>
         <mybatis.version>4.1.0</mybatis.version>
         <jspecify.version>1.0.0</jspecify.version>
         <springdoc.version>3.1.1</springdoc.version>
@@ -106,6 +107,12 @@
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!-- Shared business ID generation; no custom UUID algorithm. -->
+        <dependency>
+            <groupId>com.fasterxml.uuid</groupId>
+            <artifactId>java-uuid-generator</artifactId>
+            <version>${java-uuid-generator.version}</version>
         </dependency>
     </dependencies>
 

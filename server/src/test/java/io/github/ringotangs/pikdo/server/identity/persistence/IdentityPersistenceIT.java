@@ -9,6 +9,7 @@ import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.domain.User;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
+import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -351,6 +352,53 @@ class IdentityPersistenceIT {
         assertTrue(List.of("test-hash-a", "test-hash-b").contains(after.passwordHash()));
         assertEquals("test-input-v2", after.passwordInputVersion());
         assertEquals(before.createdAt().toInstant(), after.createdAt().toInstant());
+    }
+
+    @Test
+    void uuidV7IdsRoundTripWithoutGeneratingSeparateForeignOrSharedKeys() {
+        var userId = new UserId(UuidV7Generator.generate());
+        var accountId = new AccountId(UuidV7Generator.generate());
+        assertEquals(7, userId.value().version());
+        assertEquals(7, accountId.value().version());
+        assertNotEquals(userId.value(), accountId.value());
+        userAdapter.insert(User.create(userId));
+        var account = Account.create(accountId, userId, EmailAddress.create("V7@Example.COM"));
+        accountAdapter.insert(account);
+        assertEquals(1, credentials.insert(userId.value(), "test-v7-hash", "test-input-v1"));
+
+        assertEquals(userId, userAdapter.findById(userId).orElseThrow().getId());
+        var restored = accountAdapter.findById(accountId).orElseThrow();
+        assertEquals(accountId, restored.getId());
+        assertEquals(userId, restored.getUserId());
+        assertEquals("V7@Example.COM", restored.getEmail().getOriginalAddress());
+        assertEquals("v7@example.com", restored.getEmail().getCanonicalAddress());
+        assertEquals(userId.value(), users.findById(userId.value()).orElseThrow().id());
+        assertEquals(accountId.value(), accounts.findById(accountId.value()).orElseThrow().id());
+        assertEquals(
+                userId.value(), credentials.findByUserId(userId.value()).orElseThrow().userId());
+    }
+
+    @Test
+    void legacyUuidV4IdsRemainReadableWithoutConversionOrVersionRejection() {
+        var userId = new UserId(UUID.fromString("11111111-2222-4333-8444-555555555555"));
+        var accountId = new AccountId(UUID.fromString("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"));
+        assertEquals(4, userId.value().version());
+        assertEquals(4, accountId.value().version());
+        userAdapter.insert(User.create(userId));
+        accountAdapter.insert(
+                Account.create(accountId, userId, EmailAddress.create("Legacy@Example.COM")));
+        credentials.insert(userId.value(), "test-legacy-hash", "test-input-v1");
+
+        assertEquals(userId, userAdapter.findById(userId).orElseThrow().getId());
+        var restored =
+                accountAdapter.findByEmail(EmailAddress.create("legacy@example.com")).orElseThrow();
+        assertEquals(accountId, restored.getId());
+        assertEquals(userId, restored.getUserId());
+        assertEquals(accountId, accountAdapter.findById(accountId).orElseThrow().getId());
+        assertEquals(userId.value(), users.findById(userId.value()).orElseThrow().id());
+        assertEquals(accountId.value(), accounts.findById(accountId.value()).orElseThrow().id());
+        assertEquals(
+                userId.value(), credentials.findByUserId(userId.value()).orElseThrow().userId());
     }
 
     private int compete(UserId user, CyclicBarrier start, String hash) {
