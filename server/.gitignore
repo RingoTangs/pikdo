@@ -35,5 +35,7 @@ build/
 ### Mac OS ###
 .DS_Store
 
+.inspects
+
 # Private credentials loaded only by the dev profile.
 /config/application-dev-local.yml
