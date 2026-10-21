@@ -2,6 +2,7 @@ package io.github.ringotangs.pikdo.server.identity.domain;
 
 import java.util.Objects;
 
+// PhoneNumber 只接受规范输入，因此手机号的原始值与规范化值相同。
 public record PhoneIdentifier(PhoneNumber phone) implements LoginIdentifier {
     public PhoneIdentifier {
         Objects.requireNonNull(phone, "phone");

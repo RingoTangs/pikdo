@@ -42,6 +42,7 @@ class AccountTest {
 
     @Test
     void newInstanceCanReferenceSameUserWithoutChangingOriginalBindingInformation() {
+        // 构造 Account 仅表达绑定信息；同类型绑定的唯一性由数据库在提交时保证。
         Account original = Account.create(ACCOUNT_ID, USER_ID, EMAIL);
         AccountId newId = new AccountId(UUID.fromString("22222222-3333-4444-8555-666666666666"));
         EmailIdentifier newEmail = new EmailIdentifier(EmailAddress.create("New@Example.COM"));
@@ -75,6 +76,7 @@ class AccountTest {
 
     @Test
     void aUserCanBeReferencedByAnEmailAndAPhoneBinding() {
+        // 两种登录身份拥有各自的 AccountId，但归属同一个稳定的 UserId。
         var email = Account.create(ACCOUNT_ID, USER_ID, EMAIL);
         var identifier = new PhoneIdentifier(PhoneNumber.create("+8613812345678"));
         var phoneId = new AccountId(UUID.fromString("22222222-3333-4444-8555-666666666666"));

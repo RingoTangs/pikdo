@@ -10,6 +10,7 @@ class PhoneNumberTest {
     @ParameterizedTest
     @ValueSource(strings = {"+12", "+8613812345678", "+14155552671", "+123456789012345"})
     void retainsOnlyCanonicalInternationalSyntax(String value) {
+        // 这里只验证规范格式，不判断号码是否实际分配或已被用户验证。
         assertEquals(value, PhoneNumber.create(value).getValue());
     }
 
@@ -38,6 +39,7 @@ class PhoneNumberTest {
                 "+123\u0000"
             })
     void rejectsNonCanonicalOrOutOfBoundsNumbers(String value) {
+        // 不自动清理分隔符或推断国家区号，避免把含糊输入转换成另一登录身份。
         var failure = assertThrows(IllegalArgumentException.class, () -> PhoneNumber.create(value));
         if (!value.isEmpty()) {
             assertFalse(failure.getMessage().contains(value));

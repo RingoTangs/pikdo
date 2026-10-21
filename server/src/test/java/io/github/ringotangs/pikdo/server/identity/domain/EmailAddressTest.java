@@ -95,6 +95,7 @@ class EmailAddressTest {
 
     @Test
     void foldsAsciiCaseWhilePreservingOriginalRepresentation() {
+        // 原始拼写用于保留输入；规范化值用于身份比较，不代表邮箱控制权。
         EmailAddress email = EmailAddress.create("Alice.Smith+NEWS@EXAMPLE.COM");
 
         assertEquals("Alice.Smith+NEWS@EXAMPLE.COM", email.getOriginalAddress());
@@ -113,6 +114,7 @@ class EmailAddressTest {
     @Test
     @ResourceLock(Resources.LOCALE)
     void canonicalizationDoesNotDependOnDefaultLocale() {
+        // 土耳其语的 I 大小写规则不同；ASCII 身份键不能受默认 Locale 影响。
         Locale previous = Locale.getDefault();
         Locale previousDisplay = Locale.getDefault(Locale.Category.DISPLAY);
         Locale previousFormat = Locale.getDefault(Locale.Category.FORMAT);
@@ -126,6 +128,7 @@ class EmailAddressTest {
             assertEquals(english, turkish);
             assertEquals("IRIS@IDENTITY.EXAMPLE", turkish.getOriginalAddress());
         } finally {
+            // Locale 是 JVM 全局状态，必须恢复各类别的原值，避免影响其他测试。
             Locale.setDefault(previous);
             Locale.setDefault(Locale.Category.DISPLAY, previousDisplay);
             Locale.setDefault(Locale.Category.FORMAT, previousFormat);

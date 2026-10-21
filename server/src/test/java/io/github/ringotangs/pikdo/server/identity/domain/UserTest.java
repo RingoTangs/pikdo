@@ -68,6 +68,7 @@ class UserTest {
 
     @Test
     void repeatedLifecycleTransitionsPreserveIdentity() {
+        // 禁用和恢复只改变状态，不更换业务身份，也不创建新用户。
         User user = User.create(USER_ID);
 
         for (int cycle = 0; cycle < 3; cycle++) {

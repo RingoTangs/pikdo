@@ -14,6 +14,7 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 
 class IdentityPersistenceMappingTest {
+    // 直接构造 Row 模拟外部或损坏数据，验证领域还原不盲目信任数据库记录。
     private static final UUID ID = UUID.fromString("11111111-2222-4333-8444-555555555555");
     private static final OffsetDateTime TIME =
             OffsetDateTime.of(2026, 10, 21, 0, 0, 0, 0, ZoneOffset.UTC);
@@ -44,6 +45,7 @@ class IdentityPersistenceMappingTest {
 
     @Test
     void canonicalKeyMustAgreeWithTheOriginalEvenIfTheRowCameFromAnotherSource() {
+        // 即使原始值本身合法，也必须重新派生并核对规范化键，防止身份错配。
         var row = new AccountRow(ID, ID, "EMAIL", "Alice@Example.COM", "bob@example.com", TIME);
         assertThrows(IllegalStateException.class, () -> AccountRepositoryImpl.fromRow(row));
     }

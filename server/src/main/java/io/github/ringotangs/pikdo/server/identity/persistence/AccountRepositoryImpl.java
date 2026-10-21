@@ -26,6 +26,7 @@ public final class AccountRepositoryImpl implements AccountRepository {
     @Override
     public void insert(Account account) {
         Objects.requireNonNull(account, "account");
+        // 直接插入，由数据库原子保证每用户每类型一条及规范化身份全局唯一，避免查询后插入的竞态。
         if (mapper.insert(
                         account.getId().value(),
                         account.getUserId().value(),
@@ -60,6 +61,7 @@ public final class AccountRepositoryImpl implements AccountRepository {
     }
 
     static Account fromRow(AccountRow row) {
+        // 重新经过领域校验，拒绝未知类型或损坏数据，不把数据库记录直接当作可信领域对象。
         try {
             LoginIdentifier identifier =
                     switch (IdentityType.valueOf(row.identityType())) {
@@ -68,6 +70,7 @@ public final class AccountRepositoryImpl implements AccountRepository {
                         case PHONE ->
                                 new PhoneIdentifier(PhoneNumber.create(row.originalIdentifier()));
                     };
+            // 从原始值重新派生身份键，防止原始表示与查询键指向不同身份。
             if (!identifier.getCanonicalIdentifier().equals(row.canonicalIdentifier())) {
                 throw new IllegalStateException("Invalid persisted login identity key");
             }

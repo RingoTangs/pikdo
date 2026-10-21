@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 class LoginIdentifierTest {
     @Test
     void emailRetainsOriginalSpellingAndExistingIdentityEquality() {
+        // 标识包装保留 EmailAddress 的相等语义，不额外合并点号或加号标签。
         var original = new EmailIdentifier(EmailAddress.create("Alice+News@Example.COM"));
         var equivalent = new EmailIdentifier(EmailAddress.create("alice+news@example.com"));
         assertEquals(IdentityType.EMAIL, original.getType());

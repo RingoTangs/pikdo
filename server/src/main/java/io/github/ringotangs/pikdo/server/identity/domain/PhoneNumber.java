@@ -12,6 +12,7 @@ public final class PhoneNumber {
 
     private PhoneNumber(String value) {
         Objects.requireNonNull(value, "value");
+        // 完整匹配规范格式，不修剪空白或猜测国家区号；格式合法不表示号码已实际分配。
         if (!FORMAT.matcher(value).matches()) {
             throw new IllegalArgumentException("Phone number requires canonical E.164 syntax");
         }

@@ -13,6 +13,7 @@ public record PasswordCredentialRow(
         OffsetDateTime updatedAt) {
     @Override
     public String toString() {
+        // 覆盖 record 默认输出，避免调试或日志意外泄露密码哈希。
         return "PasswordCredentialRow[redacted]";
     }
 }

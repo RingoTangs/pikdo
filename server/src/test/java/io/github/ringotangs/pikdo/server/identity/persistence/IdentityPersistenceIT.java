@@ -74,6 +74,7 @@ class IdentityPersistenceIT {
 
     @BeforeEach
     void initializeRepositoriesAndCheckIsolation() {
+        // Mapper 使用生产扫描规则；Repository 仍手动装配，不额外注册 Spring Bean。
         userRepository = new UserRepositoryImpl(users);
         accountRepository = new AccountRepositoryImpl(accounts);
         for (String table :
@@ -84,6 +85,7 @@ class IdentityPersistenceIT {
 
     @AfterEach
     void clearOnlyThisDisposableDatabase() {
+        // 仅清理本测试容器的数据，按外键依赖顺序删除，不接触开发数据库。
         jdbc.update("DELETE FROM identity_accounts");
         jdbc.update("DELETE FROM identity_password_credentials");
         jdbc.update("DELETE FROM identity_users");
@@ -344,6 +346,7 @@ class IdentityPersistenceIT {
 
     @Test
     void aDatabaseRowOutsideTheFullEmailGrammarCannotBecomeADomainAccount() {
+        // SQL 只保证基础存储约束；完整邮箱语法仍须在还原领域对象时校验。
         var user = newUser();
         var id = UUID.randomUUID();
         assertEquals(
@@ -419,6 +422,7 @@ class IdentityPersistenceIT {
 
     @Test
     void emailAndPhoneRoundTripShareOneUserOwnedPassword() {
+        // 密码凭据归 UserId 所有，增加登录身份不会复制或拆分密码。
         var user = newUser();
         assertTrue(accountRepository.findByUserId(user.getId()).isEmpty());
         assertTrue(
@@ -483,6 +487,7 @@ class IdentityPersistenceIT {
     @ParameterizedTest
     @EnumSource(IdentityType.class)
     void eachTypeHasPerUserAndGlobalUniqueness(IdentityType type) {
+        // 分别验证同用户同类型只能一条，以及同类型规范化身份不能跨用户占用。
         var owner = newUser();
         var other = newUser();
         var first = identifier(type, false);
@@ -498,6 +503,7 @@ class IdentityPersistenceIT {
     @ParameterizedTest
     @EnumSource(IdentityType.class)
     void foreignKeysAndTransactionRollbackApplyToBothTypes(IdentityType type) {
+        // 最后一次绑定故意冲突，前面写入的用户、凭据和另一类型绑定必须一起回滚。
         var taken = identifier(type, false);
         bind(newUser(), taken);
         var missing = User.create(new UserId(UuidV7Generator.generate()));
@@ -642,6 +648,7 @@ class IdentityPersistenceIT {
     }
 
     private int competeForBinding(User user, LoginIdentifier identifier, CyclicBarrier start) {
+        // 屏障让两个任务就绪后再竞争；每个任务使用独立事务，由唯一约束裁决胜者。
         try {
             start.await(10, TimeUnit.SECONDS);
         } catch (Exception failure) {
@@ -673,6 +680,7 @@ class IdentityPersistenceIT {
     }
 
     private int compete(UserId user, CyclicBarrier start, String hash) {
+        // 两个任务持有同一预期认证版本，条件更新只允许一个成功推进版本。
         return new TransactionTemplate(transactions)
                 .execute(
                         status -> {

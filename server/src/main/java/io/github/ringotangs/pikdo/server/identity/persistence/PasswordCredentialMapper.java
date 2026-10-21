@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @Mapper
 public interface PasswordCredentialMapper {
+    // 凭据以 UserId 为主键，增加邮箱或手机号绑定不会新增一套密码。
     @Insert(
             """
             INSERT INTO identity_password_credentials (user_id, password_hash, password_input_version)
@@ -36,6 +37,7 @@ public interface PasswordCredentialMapper {
     Optional<PasswordCredentialRow> findByUserId(@Param("userId") UUID userId);
 
     /** Returns zero when the user is absent or the expected version is stale; never retries. */
+    // 版本比较、哈希替换和版本递增在同一 SQL 中完成，避免并发更新覆盖已提交的密码。
     @Update(
             """
             UPDATE identity_password_credentials

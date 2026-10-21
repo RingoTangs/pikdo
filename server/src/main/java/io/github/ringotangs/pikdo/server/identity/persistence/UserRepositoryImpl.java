@@ -32,6 +32,7 @@ public final class UserRepositoryImpl implements UserRepository {
 
     @Override
     public void updateStatus(User user) {
+        // 修改内存 User 不会自动写库，调用方须显式持久化并负责事务边界。
         Objects.requireNonNull(user, "user");
         if (mapper.updateStatus(user.getId().value(), user.getStatus().name()) != 1) {
             throw new IllegalStateException("User status update did not affect exactly one row");

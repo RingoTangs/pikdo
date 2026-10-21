@@ -135,6 +135,7 @@ public final class EmailAddress {
     }
 
     private static String foldAsciiCase(String address) {
+        // 只折叠 ASCII 大小写，避免默认 Locale 改变身份键；点号和加号标签原样保留。
         char[] characters = address.toCharArray();
         for (int i = 0; i < characters.length; i++) {
             if (characters[i] >= 'A' && characters[i] <= 'Z') {
