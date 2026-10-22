@@ -4,6 +4,7 @@ import io.github.ringotangs.pikdo.server.identity.domain.*;
 import io.github.ringotangs.pikdo.server.identity.mail.*;
 import io.github.ringotangs.pikdo.server.identity.persistence.*;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,12 +14,16 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /** 仅在实际认证用例装配现有 Repository，不改变其类或事务边界。 */
 @Configuration(proxyBeanMethods = false)
@@ -64,6 +69,32 @@ public class IdentityAuthenticationConfiguration {
     }
 
     @Bean
+    ThreadPoolTaskExecutor authenticationMailExecutor(AuthenticationProperties properties) {
+        var executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(properties.mailWorkers());
+        executor.setMaxPoolSize(properties.mailWorkers());
+        executor.setQueueCapacity(properties.mailQueueCapacity());
+        executor.setThreadNamePrefix("authentication-mail-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        // 关闭时取消排队任务，避免积压邮件延长进程退出；挑战仍受原有效期限制。
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.setAwaitTerminationSeconds(10);
+        return executor;
+    }
+
+    @Bean
+    AsyncEmailDelivery asyncEmailDelivery(
+            @Qualifier("authenticationMailExecutor") Executor executor,
+            EmailCodeSender sender,
+            EmailChallengeMapper challenges,
+            PlatformTransactionManager manager,
+            Clock clock) {
+        var transactions = new TransactionTemplate(manager);
+        transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new AsyncEmailDelivery(executor, sender, challenges, transactions, clock);
+    }
+
+    @Bean
     AuthenticationRateLimiter authenticationRateLimiter(
             AuthenticationRateMapper mapper,
             VerificationCodes codes,
@@ -81,7 +112,7 @@ public class IdentityAuthenticationConfiguration {
             EmailChallengeMapper challenges,
             VerificationCodes codes,
             AuthenticationRateLimiter rates,
-            EmailCodeSender sender,
+            AsyncEmailDelivery delivery,
             AuthenticationProperties properties,
             PlatformTransactionManager manager,
             Clock clock) {
@@ -91,7 +122,7 @@ public class IdentityAuthenticationConfiguration {
                 challenges,
                 codes,
                 rates,
-                sender,
+                delivery,
                 properties,
                 new TransactionTemplate(manager),
                 clock);

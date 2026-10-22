@@ -35,7 +35,11 @@ import java.util.concurrent.*;
         properties = {
             "pikdo.auth.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "pikdo.auth.smtp-host=localhost",
-            "pikdo.auth.mail-from=noreply@pikdo.invalid"
+            "pikdo.auth.mail-from=noreply@pikdo.invalid",
+            "pikdo.auth.mail-workers=1",
+            "pikdo.auth.mail-queue-capacity=1",
+            "pikdo.auth.trusted-proxies[0]=10.0.0.0/8",
+            "pikdo.auth.trusted-proxies[1]=2001:db8:1::/48"
         })
 @AutoConfigureMockMvc
 @Import({AuthenticationTestConfiguration.class, EmailAuthenticationIT.Database.class})
@@ -75,6 +79,26 @@ class EmailAuthenticationIT {
         }
     }
 
+    @Autowired io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery delivery;
+
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("authenticationMailExecutor")
+    org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor mailExecutor;
+
+    void awaitMail() {
+        org.awaitility.Awaitility.await()
+                .atMost(Duration.ofSeconds(10))
+                .until(
+                        () ->
+                                mailExecutor.getActiveCount() == 0
+                                        && mailExecutor.getQueueSize() == 0);
+    }
+
+    @AfterEach
+    void drainMail() {
+        awaitMail();
+    }
+
     @Autowired TestSecurityContexts contexts;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
@@ -87,6 +111,7 @@ class EmailAuthenticationIT {
 
     @BeforeEach
     void reset() {
+        awaitMail();
         for (String table :
                 List.of(
                         "spring_session",
@@ -101,11 +126,19 @@ class EmailAuthenticationIT {
     }
 
     final class Browser {
+        String remote = "127.0.0.1";
+        String forwarded;
         final Map<String, Cookie> cookies = new HashMap<>();
         String token;
         String header;
 
         MvcResult perform(MockHttpServletRequestBuilder builder) throws Exception {
+            builder.with(
+                    request -> {
+                        request.setRemoteAddr(remote);
+                        return request;
+                    });
+            if (forwarded != null) builder.header("X-Forwarded-For", forwarded);
             if (!cookies.isEmpty()) builder.cookie(cookies.values().toArray(Cookie[]::new));
             var result = mvc.perform(builder).andReturn();
             for (var cookie : result.getResponse().getCookies()) {
@@ -141,6 +174,7 @@ class EmailAuthenticationIT {
             var body = json.readTree(result.getResponse().getContentAsString());
             assertEquals(
                     Set.of("challengeId", "expiresAt", "retryAfterSeconds"), body.propertyNames());
+            awaitMail();
             return body.get("challengeId").asText();
         }
 
@@ -175,7 +209,7 @@ class EmailAuthenticationIT {
         var browser = browser();
         var original = browser.cookies.get("__Host-PIKDOSESSION").getValue();
         var id = browser.send("registration", "Alice@Example.com");
-        var code = mail.code();
+        var code = mail.code("Alice@Example.com", CodePurpose.REGISTER);
         assertEquals(
                 204,
                 browser.verify("registrations", id, "alice@example.com", code)
@@ -205,7 +239,7 @@ class EmailAuthenticationIT {
         var user = seed("Original@Example.com");
         var browser = browser();
         var id = browser.send("login", "ORIGINAL@example.com");
-        var code = mail.code();
+        var code = mail.code("Original@Example.com", CodePurpose.LOGIN);
         assertEquals("Original@Example.com", mail.deliveries.getLast().recipient());
         assertEquals(
                 204,
@@ -234,7 +268,7 @@ class EmailAuthenticationIT {
     void wrongCodesCommitAttemptBudgetAndEventuallyInvalidate() throws Exception {
         var browser = browser();
         var id = browser.send("registration", "wrong@example.com");
-        var correct = mail.code();
+        var correct = mail.code("wrong@example.com", CodePurpose.REGISTER);
         var wrong = correct.equals("000000") ? "000001" : "000000";
         for (int i = 0; i < 5; i++)
             assertEquals(
@@ -258,7 +292,7 @@ class EmailAuthenticationIT {
     void expiryPurposeAndBrowserBindingAreEnforced() throws Exception {
         var first = browser();
         var id = first.send("registration", "expiry@example.com");
-        var code = mail.code();
+        var code = mail.code("expiry@example.com", CodePurpose.REGISTER);
         assertEquals(
                 401,
                 first.verify("login", id, "expiry@example.com", code).getResponse().getStatus());
@@ -298,7 +332,7 @@ class EmailAuthenticationIT {
         var user = seed("disabled@example.com");
         var browser = browser();
         var id = browser.send("login", "disabled@example.com");
-        var code = mail.code();
+        var code = mail.code("disabled@example.com", CodePurpose.LOGIN);
         jdbc.update("UPDATE identity_users SET status='DISABLED' WHERE id=?", user.value());
         assertEquals(
                 401,
@@ -348,7 +382,7 @@ class EmailAuthenticationIT {
                         EmailAddress.create("race@example.com"),
                         flow,
                         "source-send");
-        String code = mail.code();
+        String code = mail.code("race@example.com", CodePurpose.LOGIN);
         var barrier = new CyclicBarrier(2);
         try (var executor = Executors.newFixedThreadPool(2)) {
             Callable<Boolean> task =
@@ -389,7 +423,7 @@ class EmailAuthenticationIT {
     void registrationFailureRollsBackUserAndChallengeConsumption() {
         var email = EmailAddress.create("rollback@example.com");
         var challenge = service.send(CodePurpose.REGISTER, email, "flow", "send");
-        var code = mail.code();
+        var code = mail.code("rollback@example.com", CodePurpose.REGISTER);
         AccountRepository failing =
                 new AccountRepository() {
                     public void insert(Account account) {
@@ -416,7 +450,7 @@ class EmailAuthenticationIT {
                         challenges,
                         verificationCodes,
                         limiter,
-                        mail,
+                        delivery,
                         properties,
                         new org.springframework.transaction.support.TransactionTemplate(
                                 transactions),
@@ -451,10 +485,11 @@ class EmailAuthenticationIT {
     void concurrentRegistrationCannotCreateDuplicateOrOrphanUsers() throws Exception {
         var email = EmailAddress.create("registration-race@example.com");
         var first = service.send(CodePurpose.REGISTER, email, "first", "send-first");
-        var firstCode = mail.code();
+        var firstCode = mail.code("registration-race@example.com", CodePurpose.REGISTER);
         clock.advance(Duration.ofSeconds(61));
         var second = service.send(CodePurpose.REGISTER, email, "second", "send-second");
-        var secondCode = mail.code();
+        awaitMail();
+        var secondCode = mail.code("registration-race@example.com", CodePurpose.REGISTER);
         var barrier = new CyclicBarrier(2);
         try (var executor = Executors.newFixedThreadPool(2)) {
             Callable<Boolean> firstTask =
@@ -494,7 +529,11 @@ class EmailAuthenticationIT {
         var id = browser.send("login", "session@example.com");
         assertEquals(
                 204,
-                browser.verify("login", id, "session@example.com", mail.code())
+                browser.verify(
+                                "login",
+                                id,
+                                "session@example.com",
+                                mail.code("session@example.com", CodePurpose.LOGIN))
                         .getResponse()
                         .getStatus());
         browser.csrf();
@@ -509,7 +548,11 @@ class EmailAuthenticationIT {
         id = next.send("login", "session@example.com");
         assertEquals(
                 204,
-                next.verify("login", id, "session@example.com", mail.code())
+                next.verify(
+                                "login",
+                                id,
+                                "session@example.com",
+                                mail.code("session@example.com", CodePurpose.LOGIN))
                         .getResponse()
                         .getStatus());
         jdbc.update("UPDATE identity_users SET status='DISABLED' WHERE id=?", user.value());
@@ -565,7 +608,11 @@ class EmailAuthenticationIT {
         contexts.fail = true;
         assertEquals(
                 503,
-                browser.verify("registrations", id, "session-failure@example.com", mail.code())
+                browser.verify(
+                                "registrations",
+                                id,
+                                "session-failure@example.com",
+                                mail.code("session-failure@example.com", CodePurpose.REGISTER))
                         .getResponse()
                         .getStatus());
         contexts.fail = false;
@@ -585,7 +632,11 @@ class EmailAuthenticationIT {
         var id = browser.send("login", "idle@example.com");
         assertEquals(
                 204,
-                browser.verify("login", id, "idle@example.com", mail.code())
+                browser.verify(
+                                "login",
+                                id,
+                                "idle@example.com",
+                                mail.code("idle@example.com", CodePurpose.LOGIN))
                         .getResponse()
                         .getStatus());
         jdbc.update("UPDATE spring_session SET last_access_time=0, expiry_time=0");
@@ -596,7 +647,9 @@ class EmailAuthenticationIT {
     void deliveryExceptionsNeverLeakCodeOrEmailToLogs() {
         var logger =
                 (ch.qos.logback.classic.Logger)
-                        org.slf4j.LoggerFactory.getLogger(EmailAuthenticationService.class);
+                        org.slf4j.LoggerFactory.getLogger(
+                                io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery
+                                        .class);
         var appender =
                 new ch.qos.logback.core.read.ListAppender<
                         ch.qos.logback.classic.spi.ILoggingEvent>();
@@ -616,7 +669,7 @@ class EmailAuthenticationIT {
                             challenges,
                             verificationCodes,
                             limiter,
-                            failing,
+                            newDelivery(failing),
                             properties,
                             new org.springframework.transaction.support.TransactionTemplate(
                                     transactions),
@@ -627,6 +680,7 @@ class EmailAuthenticationIT {
                             EmailAddress.create("secret@example.com"),
                             "private-flow",
                             "source");
+            awaitMail();
             assertEquals(1, appender.list.size());
             var event = appender.list.getFirst();
             assertEquals("Email verification delivery failed", event.getFormattedMessage());
@@ -641,6 +695,262 @@ class EmailAuthenticationIT {
         } finally {
             logger.detachAppender(appender);
             appender.stop();
+        }
+    }
+
+    private io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery newDelivery(
+            io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender sender) {
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        tx.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery(
+                mailExecutor, sender, challenges, tx, clock);
+    }
+
+    @Test
+    void smtpDoesNotBlockHttpAndIneligibleChallengesUseTheSameQueue() throws Exception {
+        mail.block();
+        var browser = browser();
+        try (var requests = Executors.newSingleThreadExecutor()) {
+            var response =
+                    requests.submit(
+                            () ->
+                                    browser.post(
+                                            "registration-codes",
+                                            Map.of("email", "slow@example.com")));
+            assertTrue(mail.entered.await(5, TimeUnit.SECONDS));
+            var result = response.get(2, TimeUnit.SECONDS);
+            assertEquals(202, result.getResponse().getStatus());
+            var unknown =
+                    browser.post("login-codes", Map.of("email", "unknown-queued@example.com"));
+            assertEquals(202, unknown.getResponse().getStatus());
+            assertEquals(1, mailExecutor.getQueueSize());
+            assertEquals(
+                    json.readTree(result.getResponse().getContentAsString()).propertyNames(),
+                    json.readTree(unknown.getResponse().getContentAsString()).propertyNames());
+            assertTrue(mail.deliveries.isEmpty());
+        } finally {
+            mail.unblock();
+            awaitMail();
+        }
+        assertEquals(1, mail.deliveries.size());
+    }
+
+    @Test
+    void fullQueueRejectsWithoutSmtpOnRequestThreadAndInvalidatesChallenge() throws Exception {
+        mail.block();
+        var browser = browser();
+        try {
+            assertEquals(
+                    202,
+                    browser.post("registration-codes", Map.of("email", "blocked@example.com"))
+                            .getResponse()
+                            .getStatus());
+            assertTrue(mail.entered.await(5, TimeUnit.SECONDS));
+            assertEquals(
+                    202,
+                    browser.post("registration-codes", Map.of("email", "queued@example.com"))
+                            .getResponse()
+                            .getStatus());
+            var rejected =
+                    browser.post("registration-codes", Map.of("email", "rejected@example.com"));
+            assertEquals(202, rejected.getResponse().getStatus());
+            assertEquals(
+                    Set.of("challengeId", "expiresAt", "retryAfterSeconds"),
+                    json.readTree(rejected.getResponse().getContentAsString()).propertyNames());
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM identity_email_challenges WHERE canonical_email='rejected@example.com' AND invalidated_at IS NOT NULL",
+                            Integer.class));
+            assertTrue(mail.deliveries.isEmpty());
+        } finally {
+            mail.unblock();
+            awaitMail();
+        }
+        assertEquals(2, mail.deliveries.size());
+        assertTrue(
+                mail.deliveries.stream()
+                        .noneMatch(value -> value.recipient().equals("rejected@example.com")));
+    }
+
+    @Test
+    void queuedChallengeDoesNotExtendExpiryAndIsNotSentAfterExpiration() throws Exception {
+        mail.block();
+        var browser = browser();
+        try {
+            browser.post("registration-codes", Map.of("email", "first-blocked@example.com"));
+            assertTrue(mail.entered.await(5, TimeUnit.SECONDS));
+            var response =
+                    browser.post(
+                            "registration-codes", Map.of("email", "expired-queued@example.com"));
+            assertEquals(202, response.getResponse().getStatus());
+            var expiry =
+                    java.time.Instant.parse(
+                            json.readTree(response.getResponse().getContentAsString())
+                                    .get("expiresAt")
+                                    .asText());
+            assertEquals(clock.instant().plusSeconds(300), expiry);
+            clock.advance(Duration.ofMinutes(5));
+        } finally {
+            mail.unblock();
+            awaitMail();
+        }
+        assertEquals(1, mail.deliveries.size());
+    }
+
+    @Test
+    void rollbackDoesNotScheduleMail() {
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        tx.executeWithoutResult(
+                status -> {
+                    service.send(
+                            CodePurpose.REGISTER,
+                            EmailAddress.create("not-committed@example.com"),
+                            "flow",
+                            "source");
+                    assertEquals(0, mailExecutor.getActiveCount());
+                    status.setRollbackOnly();
+                });
+        awaitMail();
+        assertEquals(0, count("identity_email_challenges"));
+        assertTrue(mail.deliveries.isEmpty());
+    }
+
+    @Test
+    void spoofedXffCannotSplitAnyAuthenticationHttpBudget() throws Exception {
+        for (String endpoint : List.of("registration-codes", "login")) {
+            for (int i = 0; i < (endpoint.equals("login") ? 30 : 10); i++)
+                assertEquals(
+                        403,
+                        mvc.perform(
+                                        post("/api/v1/auth/" + endpoint)
+                                                .with(
+                                                        request -> {
+                                                            request.setRemoteAddr("192.0.2.8");
+                                                            return request;
+                                                        })
+                                                .header("X-Forwarded-For", "203.0.113." + (i + 1)))
+                                .andReturn()
+                                .getResponse()
+                                .getStatus());
+            assertEquals(
+                    429,
+                    mvc.perform(
+                                    post("/api/v1/auth/" + endpoint)
+                                            .with(
+                                                    request -> {
+                                                        request.setRemoteAddr("192.0.2.8");
+                                                        return request;
+                                                    })
+                                            .header("X-Forwarded-For", "203.0.113.250"))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus());
+        }
+        for (int i = 0; i < 60; i++)
+            assertEquals(
+                    200,
+                    mvc.perform(
+                                    get("/api/v1/auth/csrf")
+                                            .with(
+                                                    request -> {
+                                                        request.setRemoteAddr("192.0.2.9");
+                                                        return request;
+                                                    })
+                                            .header("X-Forwarded-For", "203.0.113." + (i + 1)))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus());
+        assertEquals(
+                429,
+                mvc.perform(
+                                get("/api/v1/auth/csrf")
+                                        .with(
+                                                request -> {
+                                                    request.setRemoteAddr("192.0.2.9");
+                                                    return request;
+                                                })
+                                        .header("X-Forwarded-For", "203.0.113.250"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+    }
+
+    @Test
+    void trustedProxyClientsUseIndependentAndCanonicalBudgets() throws Exception {
+        for (int i = 0; i < 10; i++)
+            assertEquals(
+                    403,
+                    mvc.perform(
+                                    post("/api/v1/auth/registration-codes")
+                                            .with(
+                                                    request -> {
+                                                        request.setRemoteAddr("10.0.0.1");
+                                                        return request;
+                                                    })
+                                            .header("X-Forwarded-For", "192.0.2.8, 10.0.0.2"))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus());
+        assertEquals(
+                429,
+                mvc.perform(
+                                post("/api/v1/auth/registration-codes")
+                                        .with(
+                                                request -> {
+                                                    request.setRemoteAddr("10.0.0.1");
+                                                    return request;
+                                                })
+                                        .header("X-Forwarded-For", "::ffff:192.0.2.8, 10.0.0.2"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                403,
+                mvc.perform(
+                                post("/api/v1/auth/registration-codes")
+                                        .with(
+                                                request -> {
+                                                    request.setRemoteAddr("10.0.0.1");
+                                                    return request;
+                                                })
+                                        .header("X-Forwarded-For", "192.0.2.9, 10.0.0.2"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+    }
+
+    @Test
+    void allAuthenticationEntrypointsShareTheResolvedClientAddress() throws Exception {
+        var browser = new Browser();
+        browser.remote = "10.0.0.1";
+        browser.forwarded = "::ffff:192.0.2.8, 10.0.0.2";
+        browser.csrf();
+        var id = browser.send("registration", "proxy-flow@example.com");
+        assertEquals(
+                204,
+                browser.verify(
+                                "registrations",
+                                id,
+                                "proxy-flow@example.com",
+                                mail.code("proxy-flow@example.com", CodePurpose.REGISTER))
+                        .getResponse()
+                        .getStatus());
+        for (String scope :
+                List.of(
+                        "HTTP_SEND",
+                        "SOURCE_SEND",
+                        "HTTP_VERIFY",
+                        "SOURCE_VERIFY",
+                        "SOURCE_CSRF")) {
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM identity_auth_rate_limits WHERE scope=? AND subject_digest=?",
+                            Integer.class,
+                            scope,
+                            verificationCodes.digest("rate", scope, "192.0.2.8")));
         }
     }
 }

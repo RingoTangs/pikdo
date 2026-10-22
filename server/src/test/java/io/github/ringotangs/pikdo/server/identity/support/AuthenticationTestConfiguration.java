@@ -35,17 +35,59 @@ public class AuthenticationTestConfiguration {
 
         public final CopyOnWriteArrayList<Delivery> deliveries = new CopyOnWriteArrayList<>();
         public volatile boolean fail;
+        public volatile java.util.concurrent.CountDownLatch entered =
+                new java.util.concurrent.CountDownLatch(0);
+        public volatile java.util.concurrent.CountDownLatch release =
+                new java.util.concurrent.CountDownLatch(0);
+
+        public void block() {
+            entered = new java.util.concurrent.CountDownLatch(1);
+            release = new java.util.concurrent.CountDownLatch(1);
+        }
+
+        public void unblock() {
+            release.countDown();
+        }
 
         public void send(String recipient, CodePurpose purpose, String code) {
+            entered.countDown();
+            try {
+                if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                    throw new IllegalStateException("Test delivery timed out");
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Test delivery interrupted");
+            }
             if (fail) throw new IllegalStateException("Test delivery failed");
             deliveries.add(new Delivery(recipient, purpose, code));
         }
 
-        public String code() {
-            return deliveries.getLast().code();
+        public String code(String recipient, CodePurpose purpose) {
+            org.awaitility.Awaitility.await()
+                    .atMost(java.time.Duration.ofSeconds(5))
+                    .until(
+                            () ->
+                                    deliveries.stream()
+                                            .anyMatch(
+                                                    value ->
+                                                            value.recipient()
+                                                                            .equalsIgnoreCase(
+                                                                                    recipient)
+                                                                    && value.purpose() == purpose));
+            return deliveries.stream()
+                    .filter(
+                            value ->
+                                    value.recipient().equalsIgnoreCase(recipient)
+                                            && value.purpose() == purpose)
+                    .reduce((first, last) -> last)
+                    .orElseThrow()
+                    .code();
         }
 
         public void clear() {
+            unblock();
+            entered = new java.util.concurrent.CountDownLatch(0);
+            release = new java.util.concurrent.CountDownLatch(0);
             deliveries.clear();
             fail = false;
         }

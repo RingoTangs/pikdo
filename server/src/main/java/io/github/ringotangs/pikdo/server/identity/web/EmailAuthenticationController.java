@@ -3,6 +3,7 @@ package io.github.ringotangs.pikdo.server.identity.web;
 import io.github.ringotangs.pikdo.server.identity.application.*;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.security.UserPrincipal;
+import io.github.ringotangs.pikdo.server.shared.web.request.ClientIpResolver;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -35,6 +36,7 @@ public final class EmailAuthenticationController {
     private final SessionAuthenticationStrategy strategy;
     private final SecurityContextRepository contexts;
     private final Clock clock;
+    private final ClientIpResolver clientIps;
 
     public EmailAuthenticationController(
             EmailAuthenticationService service,
@@ -42,13 +44,15 @@ public final class EmailAuthenticationController {
             AuthenticationRateLimiter rates,
             SessionAuthenticationStrategy strategy,
             SecurityContextRepository contexts,
-            Clock clock) {
+            Clock clock,
+            ClientIpResolver clientIps) {
         this.service = service;
         this.codes = codes;
         this.rates = rates;
         this.strategy = strategy;
         this.contexts = contexts;
         this.clock = clock;
+        this.clientIps = clientIps;
     }
 
     public record EmailRequest(@NotBlank @Size(max = 254) String email) {}
@@ -69,7 +73,7 @@ public final class EmailAuthenticationController {
 
     @GetMapping("/csrf")
     public CsrfResponse csrf(HttpServletRequest request) {
-        rates.csrf(request.getRemoteAddr());
+        rates.csrf(clientIps.resolve(request));
         var token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
         return new CsrfResponse(token.getHeaderName(), token.getToken());
     }
@@ -124,7 +128,10 @@ public final class EmailAuthenticationController {
             session.setAttribute(FLOW, flow);
         }
         return service.send(
-                purpose, EmailAddress.create(body.email()), (String) flow, request.getRemoteAddr());
+                purpose,
+                EmailAddress.create(body.email()),
+                (String) flow,
+                clientIps.resolve(request));
     }
 
     private void complete(
@@ -143,7 +150,7 @@ public final class EmailAuthenticationController {
                         EmailAddress.create(body.email()),
                         body.code(),
                         flow,
-                        request.getRemoteAddr());
+                        clientIps.resolve(request));
         var authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
                         new UserPrincipal(user.value().toString(), clock.millis()),

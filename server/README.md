@@ -193,11 +193,11 @@ RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器�
 | GET `/me` | `{userId,status}`；匿名为 401 |
 | POST `/logout` | 204，销毁 Session；需要 CSRF |
 
-注册只创建 User 和 EMAIL Account，不创建 PasswordCredential。邮箱规范化复用 EmailAddress；登录邮件始终投递到已有 Account 保存的原始地址。注册、登录不自动合并用户；已登录时再次进入注册／登录返回 409。用途、邮箱和浏览器 Session 共同绑定挑战；验证码为六位数字，五分钟有效，成功后只能消费一次，最多五次错误尝试。未知、已注册或禁用等不适用的邮箱仍返回同形 202，不发送邮件。SMTP 投递失败同样保持通用响应并使挑战失效，客户端可在冷却后重新请求。
+注册只创建 User 和 EMAIL Account，不创建 PasswordCredential。邮箱规范化复用 EmailAddress；登录邮件始终投递到已有 Account 保存的原始地址。注册、登录不自动合并用户；已登录时再次进入注册／登录返回 409。用途、邮箱和浏览器 Session 共同绑定挑战；验证码为六位数字，五分钟有效，成功后只能消费一次，最多五次错误尝试。未知、已注册或禁用等不适用的邮箱仍返回同形 202，不发送邮件。邮件在挑战事务提交后异步调度；不符合发送条件的请求也进入同一队列，由后台跳过。SMTP 投递失败或队列满时保持相同的通用响应并使挑战失效，客户端可在冷却后重新请求。
 
 注册数据及挑战消费在同一 PostgreSQL 事务中提交；随后轮换 Session ID、清理流程秘密并持久化认证上下文。Session 写入失败返回 503；已提交的用户不会回滚，此时应重新请求登录验证码。Session 通过 UserId 标识主体，空闲 30 分钟、绝对 12 小时过期；每次受保护请求检查用户启用状态。
 
-默认和生产 Cookie 为 `__Host-PIKDOSESSION`，Secure、HttpOnly、SameSite=Lax、Path=/，要求 HTTPS；dev 使用本机 HTTP 的 `PIKDOSESSION`。仅支持同源请求，不开放跨域认证。应用按直接连接的来源 IP 限流，不信任任意客户端转发头；反向代理部署须单独配置并验证可信代理与同源地址，不要直接信任公网 Forwarded 头。
+默认和生产 Cookie 为 `__Host-PIKDOSESSION`，Secure、HttpOnly、SameSite=Lax、Path=/，要求 HTTPS；dev 使用本机 HTTP 的 `PIKDOSESSION`。仅支持同源请求，不开放跨域认证。默认按直接连接的来源 IP 限流；仅明确配置的可信代理可以提供 X-Forwarded-For，规则见下节。
 
 启动前配置以下环境变量：
 
@@ -210,3 +210,47 @@ RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器�
 `pikdo.auth` 可配置 resend-interval（60s）、email-hourly-limit（5）、max-attempts（5）、send-ip-limit（10/分钟）、verify-ip-limit（30/分钟）、csrf-ip-limit（60/分钟）、absolute-session-lifetime（12h）。注册与登录共用邮箱发送预算，预算保存在 PostgreSQL 并发原子更新。错误验证提交失败次数；不会因抛出业务失败而回滚预算。每小时清理已过期预算及过期超过 24 小时的挑战；JDBC Session 使用 Spring Session 清理任务。
 
 `EmailAuthenticationIT` 使用 PostgreSQL Testcontainers 验证真实 Mapper、事务、并发冲突、Session Cookie、CSRF 和退出登录。不会访问开发数据库；V1–V3 保持原样。`pikdo.auth.enabled=false` 仅用于原有无数据库 Web 测试的隔离，认证端点消失，`/api/**` 仍保持访问控制。
+
+
+### 异步邮件与有界队列
+
+`pikdo.auth.mail-workers` 默认 2，`pikdo.auth.mail-queue-capacity` 默认 100，均须为正数。邮件只在数据库事务提交后排队；HTTP 不等待 SMTP，队列满也不会在请求线程发送。后台发送前再次检查挑战的有效状态；有效期仍从创建时计算，排队不会延长五分钟期限。投递失败、队列拒绝和失效写入失败均只记录固定告警，不附带邮箱、验证码或异常堆栈。
+
+队列只在本进程内存保存，不持久化、不自动重试。关闭时停止接收并取消排队任务，最多等待工作线程退出 10 秒；进程退出可能丢失任务。失效写入失败时仍由原有效期和一次性消费约束兜底，未发送的随机验证码不对外公开。SMTP 耗时已移出 HTTP 路径，但这不保证严格恒时，也不消除所有数据库或负载侧信道。
+
+### 可信代理和真实客户端 IP
+
+配置示例（只填实际直接或中间代理的地址，不要直接复制宽泛网段）：
+
+```yaml
+pikdo:
+  auth:
+    trusted-proxies:
+      - "127.0.0.1/32"
+      - "::1/128"
+```
+
+默认为空列表，此时所有 XFF 都被忽略。只有直接连接的来源可信时才解析 XFF；从右向左跳过连续的可信代理，取第一个不可信地址为客户端。若整条链都可信则取最左地址。支持 IPv4、IPv6、CIDR 及 IPv4 映射 IPv6 的统一计数；只接受 IP 字面量，不执行 DNS 查询。非法可信配置会阻止启动。
+
+XFF 支持重复头按顺序合并；最多 4096 字符、32 个地址。缺失、空项、非法地址、主机名、端口或 IPv6 zone ID 均整体回退直接连接地址。忽略 Forwarded、X-Real-IP，不按它们补充或覆盖结果。保持 `server.forward-headers-strategy=none`，不要另外注册 ForwardedHeaderFilter 或 Tomcat RemoteIpValve 改写直接连接来源，否则可信边界会丢失。
+
+公网入口 Nginx 必须覆盖客户端自带的 XFF：
+
+```nginx
+location / {
+    proxy_pass https://127.0.0.1:8443;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header Forwarded "";
+    proxy_set_header X-Real-IP "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_ssl_server_name on;
+    proxy_ssl_name api.pikdo.example;
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/nginx/backend-ca.pem;
+}
+```
+
+该生产示例要求外部 Nginx 和 Spring Boot 后端均启用 HTTPS，后端证书须匹配配置的 `proxy_ssl_name`，按实际域名和 CA 文件替换示例值。这样保留现有同源 Origin 校验，无需信任客户端 X-Forwarded-Proto。纯 HTTP 的 dev 环境可以将 upstream 改为 `http://127.0.0.1:8080`；不要直接将生产 TLS 终止后转 HTTP 的部署套用此示例，否则现有同源检查可能拒绝请求。
+
+多级代理时，公网第一跳仍覆盖 XFF；后续受控代理使用 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` 逐跳追加，并保留 Host 和一致的 HTTPS Scheme。将实际链路中的代理 IP/CIDR 加入可信列表，以防火墙或监听地址限制后端只能由这些代理访问；不要信任任意公网来源、整个客户端网段或默认所有私网。若 Nginx 自身启用了 real_ip 模块，必须保证它同样只信任明确的上游代理，不能让公网输入直接改写 `$remote_addr`。

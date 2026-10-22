@@ -24,7 +24,9 @@ class AuthenticationConfigurationTest {
                 587,
                 "user",
                 "smtp-secret",
-                "noreply@pikdo.invalid");
+                "noreply@pikdo.invalid",
+                2,
+                100);
     }
 
     @Test

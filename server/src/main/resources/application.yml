@@ -24,6 +24,7 @@ spring:
     name: pikdo-server
 
 server:
+  forward-headers-strategy: none
   port: 8080
   servlet:
     session:
@@ -61,6 +62,9 @@ mybatis:
 
 pikdo:
   auth:
+    mail-workers: 2
+    mail-queue-capacity: 100
+    trusted-proxies: []
     hmac-key: ${PIKDO_AUTH_HMAC_KEY:}
     smtp-host: ${PIKDO_AUTH_SMTP_HOST:}
     smtp-port: ${PIKDO_AUTH_SMTP_PORT:587}

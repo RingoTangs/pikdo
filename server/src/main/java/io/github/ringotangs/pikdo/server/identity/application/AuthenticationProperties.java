@@ -20,7 +20,9 @@ public record AuthenticationProperties(
         @DefaultValue("587") int smtpPort,
         @DefaultValue("") String smtpUsername,
         @DefaultValue("") String smtpPassword,
-        @DefaultValue("") String mailFrom) {
+        @DefaultValue("") String mailFrom,
+        @DefaultValue("2") int mailWorkers,
+        @DefaultValue("100") int mailQueueCapacity) {
     public AuthenticationProperties {
         if (resendInterval.isNegative()
                 || resendInterval.isZero()
@@ -32,7 +34,9 @@ public record AuthenticationProperties(
                 || verifyIpLimit < 1
                 || csrfIpLimit < 1
                 || smtpPort < 1
-                || smtpPort > 65535)
+                || smtpPort > 65535
+                || mailWorkers < 1
+                || mailQueueCapacity < 1)
             throw new IllegalArgumentException("Invalid authentication limits");
     }
 

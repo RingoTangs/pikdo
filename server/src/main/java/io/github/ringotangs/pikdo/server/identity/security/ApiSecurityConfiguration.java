@@ -6,6 +6,7 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 import io.github.ringotangs.pikdo.server.identity.web.AuthenticationError;
 import io.github.ringotangs.pikdo.server.shared.web.error.CommonError;
 import io.github.ringotangs.pikdo.server.shared.web.error.ErrorMessageResolver;
+import io.github.ringotangs.pikdo.server.shared.web.request.ClientIpResolver;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -14,8 +15,11 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,6 +47,15 @@ import java.util.UUID;
 /** API 使用 Cookie Session；公开健康检查和不存在的非 API 路由保留原行为。 */
 @Configuration(proxyBeanMethods = false)
 public class ApiSecurityConfiguration {
+    @Bean
+    ClientIpResolver clientIpResolver(Environment environment) {
+        var proxies =
+                Binder.get(environment)
+                        .bind("pikdo.auth.trusted-proxies", Bindable.listOf(String.class))
+                        .orElse(java.util.List.of());
+        return new ClientIpResolver(proxies);
+    }
+
     @Bean
     org.springframework.security.authentication.AuthenticationManager authenticationManager() {
         // 不启用 Boot 默认用户；验证码认证只通过受控应用服务建立上下文。
@@ -84,6 +97,7 @@ public class ApiSecurityConfiguration {
     @Bean
     SecurityFilterChain apiSecurity(
             HttpSecurity http,
+            ClientIpResolver clientIps,
             SecurityJson json,
             CsrfTokenRepository csrf,
             SecurityContextRepository contexts,
@@ -156,10 +170,10 @@ public class ApiSecurityConfiguration {
                                     if (limiter != null && "POST".equals(req.getMethod())) {
                                         if (path.endsWith("/registration-codes")
                                                 || path.endsWith("/login-codes"))
-                                            limiter.request(req.getRemoteAddr(), true);
+                                            limiter.request(clientIps.resolve(req), true);
                                         else if (path.endsWith("/registrations")
                                                 || path.endsWith("/login"))
-                                            limiter.request(req.getRemoteAddr(), false);
+                                            limiter.request(clientIps.resolve(req), false);
                                     }
                                     chain.doFilter(req, res);
                                 } catch (

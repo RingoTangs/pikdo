@@ -1,13 +1,11 @@
 package io.github.ringotangs.pikdo.server.identity.application;
 
 import io.github.ringotangs.pikdo.server.identity.domain.*;
-import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery;
 import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
 import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -20,13 +18,12 @@ import java.util.UUID;
 
 /** 邮箱认证用例：数据库提交与 HTTP Session 建立分离，不合并不同流程的 User。 */
 public final class EmailAuthenticationService {
-    private static final Logger log = LoggerFactory.getLogger(EmailAuthenticationService.class);
     private final UserRepository users;
     private final AccountRepository accounts;
     private final EmailChallengeMapper challenges;
     private final VerificationCodes codes;
     private final AuthenticationRateLimiter rates;
-    private final EmailCodeSender sender;
+    private final AsyncEmailDelivery delivery;
     private final AuthenticationProperties properties;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -39,7 +36,7 @@ public final class EmailAuthenticationService {
             EmailChallengeMapper challenges,
             VerificationCodes codes,
             AuthenticationRateLimiter rates,
-            EmailCodeSender sender,
+            AsyncEmailDelivery delivery,
             AuthenticationProperties properties,
             TransactionTemplate transactions,
             Clock clock) {
@@ -48,7 +45,7 @@ public final class EmailAuthenticationService {
         this.challenges = challenges;
         this.codes = codes;
         this.rates = rates;
-        this.sender = sender;
+        this.delivery = delivery;
         this.properties = properties;
         this.transactions = transactions;
         this.clock = clock;
@@ -107,18 +104,10 @@ public final class EmailAuthenticationService {
                                     now);
                             if (challenges.insert(challenge) != 1)
                                 throw new IllegalStateException("Challenge insertion failed");
+                            delivery.afterCommit(challenge, purpose, code);
                             return challenge;
                         });
         if (row == null) throw new AuthenticationFailure(AuthenticationFailure.Reason.UNAVAILABLE);
-        // 投递发生在提交之后；失败不向公众暴露，也不自动重试或记录邮件异常。
-        if (row.eligible()) {
-            try {
-                sender.send(row.originalEmail(), purpose, code);
-            } catch (RuntimeException failure) {
-                log.warn("Email verification delivery failed");
-                transactions.executeWithoutResult(status -> challenges.invalidate(id, now()));
-            }
-        }
         return new IssuedCode(
                 id, row.expiresAt().toInstant(), properties.resendInterval().toSeconds());
     }
