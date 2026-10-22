@@ -7,6 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.Collections;
 import java.util.List;
 
 class ClientIpResolverTest {
@@ -79,7 +80,7 @@ class ClientIpResolverTest {
                 resolver.resolve(
                         request(
                                 "10.0.0.1",
-                                String.join(",", java.util.Collections.nCopies(33, "192.0.2.1")))));
+                                String.join(",", Collections.nCopies(33, "192.0.2.1")))));
     }
 
     @Test

@@ -11,6 +11,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.session.web.http.CookieSerializer;
+import org.springframework.session.web.http.DefaultCookieSerializer;
 
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -19,9 +21,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableScheduling
 public class IdentityAuthenticationConfiguration {
     @Bean
-    org.springframework.session.web.http.CookieSerializer authenticationCookieSerializer(
-            org.springframework.core.env.Environment environment) {
-        var cookie = new org.springframework.session.web.http.DefaultCookieSerializer();
+    CookieSerializer authenticationCookieSerializer(Environment environment) {
+        var cookie = new DefaultCookieSerializer();
         cookie.setCookieName(
                 environment.getProperty(
                         "server.servlet.session.cookie.name", "__Host-PIKDOSESSION"));

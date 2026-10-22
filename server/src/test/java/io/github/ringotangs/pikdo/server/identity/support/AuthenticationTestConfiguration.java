@@ -3,12 +3,16 @@ package io.github.ringotangs.pikdo.server.identity.support;
 import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
 import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
 
+import org.awaitility.Awaitility;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 import java.time.*;
+import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** 测试邮件仅留在内存，不连接 SMTP，不输出验证码。 */
 @TestConfiguration(proxyBeanMethods = false)
@@ -35,14 +39,12 @@ public class AuthenticationTestConfiguration {
 
         public final CopyOnWriteArrayList<Delivery> deliveries = new CopyOnWriteArrayList<>();
         public volatile boolean fail;
-        public volatile java.util.concurrent.CountDownLatch entered =
-                new java.util.concurrent.CountDownLatch(0);
-        public volatile java.util.concurrent.CountDownLatch release =
-                new java.util.concurrent.CountDownLatch(0);
+        public volatile CountDownLatch entered = new CountDownLatch(0);
+        public volatile CountDownLatch release = new CountDownLatch(0);
 
         public void block() {
-            entered = new java.util.concurrent.CountDownLatch(1);
-            release = new java.util.concurrent.CountDownLatch(1);
+            entered = new CountDownLatch(1);
+            release = new CountDownLatch(1);
         }
 
         public void unblock() {
@@ -52,7 +54,7 @@ public class AuthenticationTestConfiguration {
         public void send(String recipient, CodePurpose purpose, String code) {
             entered.countDown();
             try {
-                if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                if (!release.await(10, TimeUnit.SECONDS))
                     throw new IllegalStateException("Test delivery timed out");
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
@@ -63,8 +65,8 @@ public class AuthenticationTestConfiguration {
         }
 
         public String code(String recipient, CodePurpose purpose) {
-            org.awaitility.Awaitility.await()
-                    .atMost(java.time.Duration.ofSeconds(5))
+            Awaitility.await()
+                    .atMost(Duration.ofSeconds(5))
                     .until(
                             () ->
                                     deliveries.stream()
@@ -86,8 +88,8 @@ public class AuthenticationTestConfiguration {
 
         public void clear() {
             unblock();
-            entered = new java.util.concurrent.CountDownLatch(0);
-            release = new java.util.concurrent.CountDownLatch(0);
+            entered = new CountDownLatch(0);
+            release = new CountDownLatch(0);
             deliveries.clear();
             fail = false;
         }

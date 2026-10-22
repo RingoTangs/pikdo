@@ -5,20 +5,22 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.context.support.StaticMessageSource;
+import org.springframework.http.HttpStatus;
 
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Properties;
 import java.util.stream.Stream;
 
 class ErrorMessageResolverTest {
     @Test
     void allProductionErrorsHaveExplicitTranslationsInBothBundles() throws Exception {
         for (String name : new String[] {"messages.properties", "messages_zh.properties"}) {
-            java.util.Properties properties = new java.util.Properties();
+            Properties properties = new Properties();
             try (var stream = getClass().getClassLoader().getResourceAsStream(name)) {
                 assertNotNull(stream);
-                properties.load(
-                        new java.io.InputStreamReader(
-                                stream, java.nio.charset.StandardCharsets.UTF_8));
+                properties.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
             }
             Stream.concat(Stream.of(CommonError.values()), Stream.of(RequestError.values()))
                     .forEach(
@@ -44,8 +46,8 @@ class ErrorMessageResolverTest {
                         return "USER_NOT_FOUND";
                     }
 
-                    public org.springframework.http.HttpStatus getStatus() {
-                        return org.springframework.http.HttpStatus.NOT_FOUND;
+                    public HttpStatus getStatus() {
+                        return HttpStatus.NOT_FOUND;
                     }
 
                     public String getMessageKey() {

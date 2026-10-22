@@ -11,6 +11,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 class IdentityPersistenceMappingTest {
@@ -92,7 +93,7 @@ class IdentityPersistenceMappingTest {
         assertEquals(
                 new PhoneIdentifier(PhoneNumber.create("+8613812345678")), phone.getIdentifier());
         for (var row :
-                java.util.List.of(
+                List.of(
                         new AccountRow(ID, ID, "PHONE", "+8613812345678", "+8613812345679", TIME),
                         new AccountRow(ID, null, "PHONE", "+8613812345678", "+8613812345678", TIME),
                         new AccountRow(ID, ID, "PHONE", null, "+8613812345678", TIME),

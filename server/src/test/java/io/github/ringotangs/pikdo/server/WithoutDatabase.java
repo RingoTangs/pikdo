@@ -1,6 +1,15 @@
 package io.github.ringotangs.pikdo.server;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.identity.persistence.AccountMapper;
+import io.github.ringotangs.pikdo.server.identity.persistence.AuthenticationRateMapper;
+import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
+import io.github.ringotangs.pikdo.server.identity.persistence.UserMapper;
+
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -15,14 +24,14 @@ import java.lang.annotation.Target;
             "pikdo.auth.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
         })
-@org.springframework.test.context.bean.override.mockito.MockitoBean(
+@MockitoBean(
         types = {
-            io.github.ringotangs.pikdo.server.identity.persistence.UserMapper.class,
-            io.github.ringotangs.pikdo.server.identity.persistence.AccountMapper.class,
-            io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper.class,
-            io.github.ringotangs.pikdo.server.identity.persistence.AuthenticationRateMapper.class,
-            org.springframework.transaction.PlatformTransactionManager.class,
-            io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender.class,
-            io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter.class
+            UserMapper.class,
+            AccountMapper.class,
+            EmailChallengeMapper.class,
+            AuthenticationRateMapper.class,
+            PlatformTransactionManager.class,
+            EmailCodeSender.class,
+            AuthenticationRateLimiter.class
         })
 @interface WithoutDatabase {}

@@ -11,37 +11,51 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
+import io.github.ringotangs.pikdo.server.identity.security.ApiSecurityConfiguration;
 import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdConfiguration;
 import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdFilter;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Locale;
+import java.util.UUID;
+
 @WebMvcTest(
         value = WebExceptionHandlerTest.TestController.class,
         properties = "spring.messages.basename=messages,test-messages")
 @Import({
-    io.github.ringotangs.pikdo.server.identity.security.ApiSecurityConfiguration.class,
+    ApiSecurityConfiguration.class,
     RequestIdConfiguration.class,
     WebExceptionHandler.class,
     ErrorMessageResolver.class,
     WebExceptionFallbackConfiguration.class,
     WebExceptionHandlerTest.TestController.class
 })
+@EnableConfigurationProperties(AuthenticationProperties.class)
 class WebExceptionHandlerTest {
+    @MockitoBean UserRepository securityUsers;
+    @MockitoBean AuthenticationRateLimiter securityRates;
 
     @Autowired private MockMvc mockMvc;
 
@@ -59,7 +73,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"BUSINESS_ERROR","message":"Business operation failed"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
@@ -73,7 +87,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"USER_NOT_FOUND","message":"User alice not found"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @TestComponent
@@ -160,7 +174,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"COMMON_INTERNAL_SERVER_ERROR","message":"Internal server error"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
@@ -174,7 +188,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"COMMON_INTERNAL_SERVER_ERROR","message":"Internal server error"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
@@ -197,7 +211,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"COMMON_NOT_FOUND","message":"Resource not found"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
@@ -211,7 +225,7 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"USER_NOT_FOUND","message":"User alice not found"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
@@ -225,11 +239,11 @@ class WebExceptionHandlerTest {
                                         """
                         {"code":"USER_NOT_FOUND","message":"User alice not found"}
                         """,
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({
+    @CsvSource({
         "zh-CN,资源不存在,服务器内部错误,用户 alice 不存在",
         "en-US,Resource not found,Internal server error,User alice not found",
         "fr-FR,Resource not found,Internal server error,User alice not found"
@@ -264,7 +278,7 @@ class WebExceptionHandlerTest {
                                                                     ? "COMMON_INTERNAL_SERVER_ERROR"
                                                                     : "USER_NOT_FOUND",
                                                             unexpected ? serverError : dynamic),
-                                            org.springframework.test.json.JsonCompareMode.STRICT));
+                                            JsonCompareMode.STRICT));
         }
     }
 
@@ -279,14 +293,14 @@ class WebExceptionHandlerTest {
                                 .json(
                                         "{\"code\":\"%s\",\"message\":\"%s\"}"
                                                 .formatted(code, message),
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                                        JsonCompareMode.STRICT));
     }
 
     @Test
     void defaultLanguageDoesNotDependOnSystemLocale() throws Exception {
-        java.util.Locale previous = java.util.Locale.getDefault();
+        Locale previous = Locale.getDefault();
         try {
-            java.util.Locale.setDefault(java.util.Locale.SIMPLIFIED_CHINESE);
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
             mockMvc.perform(get("/test/common-error"))
                     .andExpect(status().isNotFound())
                     .andExpect(
@@ -296,7 +310,7 @@ class WebExceptionHandlerTest {
             assertLocalized(
                     "/test/common-error", "de-DE", 404, "COMMON_NOT_FOUND", "Resource not found");
         } finally {
-            java.util.Locale.setDefault(previous);
+            Locale.setDefault(previous);
         }
     }
 
@@ -328,12 +342,11 @@ class WebExceptionHandlerTest {
                                     content()
                                             .json(
                                                     "{\"code\":\"COMMON_INTERNAL_SERVER_ERROR\",\"message\":\"Internal server error\"}",
-                                                    org.springframework.test.json.JsonCompareMode
-                                                            .STRICT))
+                                                    JsonCompareMode.STRICT))
                             .andReturn();
             String requestId = result.getResponse().getHeader(RequestIdFilter.HEADER_NAME);
             assertNotNull(requestId);
-            assertEquals(4, java.util.UUID.fromString(requestId).version());
+            assertEquals(4, UUID.fromString(requestId).version());
             assertNull(MDC.get(RequestIdFilter.MDC_KEY));
             assertEquals(1, appender.list.size());
             ILoggingEvent event = appender.list.getFirst();
@@ -383,11 +396,7 @@ class WebExceptionHandlerTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({
-        "/test/common-error,404",
-        "/test/business-error,400",
-        "/test/missing,404"
-    })
+    @CsvSource({"/test/common-error,404", "/test/business-error,400", "/test/missing,404"})
     void errorResponsesIncludeRequestId(String path, int expectedStatus) throws Exception {
         var response =
                 mockMvc.perform(get(path))
@@ -396,7 +405,7 @@ class WebExceptionHandlerTest {
                         .getResponse();
         String id = response.getHeader(RequestIdFilter.HEADER_NAME);
         assertNotNull(id);
-        assertEquals(4, java.util.UUID.fromString(id).version());
+        assertEquals(4, UUID.fromString(id).version());
         assertNull(MDC.get(RequestIdFilter.MDC_KEY));
     }
 

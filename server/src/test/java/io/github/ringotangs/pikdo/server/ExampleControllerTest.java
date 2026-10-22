@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.ringotangs.pikdo.server.controller.ExampleController;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -16,6 +17,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.UUID;
 
 @WithoutDatabase
 @SpringBootTest
@@ -58,11 +61,11 @@ class ExampleControllerTest {
                         .getHeader("X-Request-ID");
         assertNotNull(first);
         assertNotNull(second);
-        assertEquals(4, java.util.UUID.fromString(first).version());
-        assertEquals(4, java.util.UUID.fromString(second).version());
+        assertEquals(4, UUID.fromString(first).version());
+        assertEquals(4, UUID.fromString(second).version());
         assertNotEquals("malicious-client-id", first);
         assertNotEquals(first, second);
-        assertNull(org.slf4j.MDC.get("requestId"));
+        assertNull(MDC.get("requestId"));
     }
 
     @Test

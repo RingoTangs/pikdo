@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 class EmailAddressTest {
@@ -240,7 +241,7 @@ class EmailAddressTest {
 
     private static Stream<Character> unsupportedAsciiCharacters() {
         return Stream.concat(
-                java.util.stream.IntStream.rangeClosed(0, 32).mapToObj(value -> (char) value),
+                IntStream.rangeClosed(0, 32).mapToObj(value -> (char) value),
                 Stream.of((char) 127));
     }
 }

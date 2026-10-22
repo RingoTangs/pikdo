@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.ringotangs.pikdo.server.controller.ExampleController;
 import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdFilter;
 
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +19,10 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+import java.util.UUID;
+
+import javax.sql.DataSource;
 
 @WithoutDatabase
 @SpringBootTest
@@ -32,11 +38,9 @@ class ApplicationTest {
 
     @Test
     void webRegressionContextHasNoDatabaseInfrastructure() {
-        assertTrue(context.getBeansOfType(javax.sql.DataSource.class).isEmpty());
-        assertTrue(context.getBeansOfType(org.flywaydb.core.Flyway.class).isEmpty());
-        assertTrue(
-                context.getBeansOfType(org.apache.ibatis.session.SqlSessionFactory.class)
-                        .isEmpty());
+        assertTrue(context.getBeansOfType(DataSource.class).isEmpty());
+        assertTrue(context.getBeansOfType(Flyway.class).isEmpty());
+        assertTrue(context.getBeansOfType(SqlSessionFactory.class).isEmpty());
     }
 
     @Test
@@ -89,7 +93,7 @@ class ApplicationTest {
                             .getResponse();
             String id = response.getHeader("X-Request-ID");
             assertNotNull(id);
-            assertEquals(4, java.util.UUID.fromString(id).version());
+            assertEquals(4, UUID.fromString(id).version());
         }
         mockMvc.perform(
                         post("/examples/validation/body")

@@ -3,31 +3,60 @@ package io.github.ringotangs.pikdo.server.identity.application;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+
 import io.github.ringotangs.pikdo.server.Application;
 import io.github.ringotangs.pikdo.server.identity.domain.*;
+import io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery;
+import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
+import io.github.ringotangs.pikdo.server.identity.security.AuthenticationSessionService;
 import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.*;
+import io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
+import org.awaitility.Awaitility;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.*;
+import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.*;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.*;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.*;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** 真正的 PostgreSQL、Flyway 和 JDBC Session；仅邮件投递及时间由测试控制。 */
 @SpringBootTest(
@@ -63,30 +92,25 @@ class EmailAuthenticationIT {
         }
     }
 
-    static final class TestSecurityContexts
-            extends org.springframework.security.web.context.HttpSessionSecurityContextRepository {
+    static final class TestSecurityContexts extends HttpSessionSecurityContextRepository {
         volatile boolean fail;
 
         @Override
         public void saveContext(
-                org.springframework.security.core.context.SecurityContext context,
-                jakarta.servlet.http.HttpServletRequest request,
-                jakarta.servlet.http.HttpServletResponse response) {
-            if (fail)
-                throw new org.springframework.dao.DataAccessResourceFailureException(
-                        "Test session store failure");
+                SecurityContext context, HttpServletRequest request, HttpServletResponse response) {
+            if (fail) throw new DataAccessResourceFailureException("Test session store failure");
             super.saveContext(context, request, response);
         }
     }
 
-    @Autowired io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery delivery;
+    @Autowired AsyncEmailDelivery delivery;
 
     @Autowired
-    @org.springframework.beans.factory.annotation.Qualifier("authenticationMailExecutor")
-    org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor mailExecutor;
+    @Qualifier("authenticationMailExecutor")
+    ThreadPoolTaskExecutor mailExecutor;
 
     void awaitMail() {
-        org.awaitility.Awaitility.await()
+        Awaitility.await()
                 .atMost(Duration.ofSeconds(10))
                 .until(
                         () ->
@@ -158,8 +182,7 @@ class EmailAuthenticationIT {
 
         MvcResult post(String path, Object body) throws Exception {
             return perform(
-                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
-                                    "/api/v1/auth/" + path)
+                    MockMvcRequestBuilders.post("/api/v1/auth/" + path)
                             .header(header, token)
                             .contentType("application/json")
                             .content(json.writeValueAsBytes(body)));
@@ -414,10 +437,9 @@ class EmailAuthenticationIT {
     @Autowired AuthenticationRateLimiter limiter;
     @Autowired AuthenticationProperties properties;
 
-    @Autowired
-    io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper challenges;
+    @Autowired EmailChallengeMapper challenges;
 
-    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
+    @Autowired PlatformTransactionManager transactions;
 
     @Test
     void registrationFailureRollsBackUserAndChallengeConsumption() {
@@ -426,9 +448,8 @@ class EmailAuthenticationIT {
         var code = mail.code("rollback@example.com", CodePurpose.REGISTER);
         AccountRepository failing =
                 new AccountRepository() {
-                    public void insert(Account account) {
-                        throw new org.springframework.dao.DataIntegrityViolationException(
-                                "Test failure");
+                    public void insert(@NonNull Account account) {
+                        throw new DataIntegrityViolationException("Test failure");
                     }
 
                     public Optional<Account> findById(AccountId id) {
@@ -455,7 +476,7 @@ class EmailAuthenticationIT {
                         transactions,
                         clock);
         assertThrows(
-                org.springframework.dao.DataIntegrityViolationException.class,
+                DataIntegrityViolationException.class,
                 () ->
                         broken.complete(
                                 CodePurpose.REGISTER,
@@ -468,8 +489,7 @@ class EmailAuthenticationIT {
         assertEquals(0, count("identity_accounts"));
         assertNull(
                 jdbc.queryForObject(
-                        "SELECT consumed_at FROM identity_email_challenges",
-                        java.time.OffsetDateTime.class));
+                        "SELECT consumed_at FROM identity_email_challenges", OffsetDateTime.class));
         assertNotNull(
                 service.complete(
                         CodePurpose.REGISTER,
@@ -567,7 +587,7 @@ class EmailAuthenticationIT {
         assertNotNull(
                 jdbc.queryForObject(
                         "SELECT invalidated_at FROM identity_email_challenges",
-                        java.time.OffsetDateTime.class));
+                        OffsetDateTime.class));
         assertEquals(
                 401,
                 browser.verify("registrations", id, "mail-failure@example.com", "000000")
@@ -644,18 +664,12 @@ class EmailAuthenticationIT {
 
     @Test
     void deliveryExceptionsNeverLeakCodeOrEmailToLogs() {
-        var logger =
-                (ch.qos.logback.classic.Logger)
-                        org.slf4j.LoggerFactory.getLogger(
-                                io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery
-                                        .class);
-        var appender =
-                new ch.qos.logback.core.read.ListAppender<
-                        ch.qos.logback.classic.spi.ILoggingEvent>();
+        var logger = (Logger) LoggerFactory.getLogger(AsyncEmailDelivery.class);
+        var appender = new ListAppender<ILoggingEvent>();
         appender.start();
         logger.addAppender(appender);
-        var secret = new java.util.concurrent.atomic.AtomicReference<String>();
-        io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender failing =
+        var secret = new AtomicReference<String>();
+        EmailCodeSender failing =
                 (recipient, purpose, code) -> {
                     secret.set(code);
                     throw new IllegalStateException("Sensitive mail: " + recipient + " " + code);
@@ -696,10 +710,8 @@ class EmailAuthenticationIT {
         }
     }
 
-    private io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery newDelivery(
-            io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender sender) {
-        return new io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery(
-                mailExecutor, sender, challenges, transactions, clock);
+    private AsyncEmailDelivery newDelivery(EmailCodeSender sender) {
+        return new AsyncEmailDelivery(mailExecutor, sender, challenges, transactions, clock);
     }
 
     @Test
@@ -781,7 +793,7 @@ class EmailAuthenticationIT {
                             "registration-codes", Map.of("email", "expired-queued@example.com"));
             assertEquals(202, response.getResponse().getStatus());
             var expiry =
-                    java.time.Instant.parse(
+                    Instant.parse(
                             json.readTree(response.getResponse().getContentAsString())
                                     .get("expiresAt")
                                     .asText());
@@ -796,7 +808,7 @@ class EmailAuthenticationIT {
 
     @Test
     void rollbackDoesNotScheduleMail() {
-        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        var tx = new TransactionTemplate(transactions);
         tx.executeWithoutResult(
                 status -> {
                     service.send(
@@ -949,28 +961,26 @@ class EmailAuthenticationIT {
         }
     }
 
-    @Autowired org.springframework.context.ApplicationContext context;
+    @Autowired ApplicationContext context;
 
     @Test
     void scannedServicesAndRepositoriesAreUniqueAndRepositoriesSupportSpringProxies() {
-        assertFalse(org.mockito.Mockito.mockingDetails(service).isMock());
-        assertFalse(org.mockito.Mockito.mockingDetails(limiter).isMock());
+        assertFalse(Mockito.mockingDetails(service).isMock());
+        assertFalse(Mockito.mockingDetails(limiter).isMock());
         for (Class<?> type :
                 List.of(
                         EmailAuthenticationService.class,
                         AuthenticationRateLimiter.class,
                         AuthenticationCleanup.class,
                         VerificationCodes.class,
-                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService
-                                .class,
-                        io.github.ringotangs.pikdo.server.identity.security
-                                .AuthenticationSessionService.class,
-                        io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery.class,
+                        EmailAuthenticationWebService.class,
+                        AuthenticationSessionService.class,
+                        AsyncEmailDelivery.class,
                         UserRepository.class,
                         AccountRepository.class))
             assertEquals(1, context.getBeansOfType(type).size(), type.getSimpleName());
-        assertTrue(org.springframework.aop.support.AopUtils.isAopProxy(users));
-        assertTrue(org.springframework.aop.support.AopUtils.isAopProxy(accounts));
+        assertTrue(AopUtils.isAopProxy(users));
+        assertTrue(AopUtils.isAopProxy(accounts));
         assertFalse(context.containsBean("authenticationUsers"));
         assertFalse(context.containsBean("authenticationAccounts"));
     }

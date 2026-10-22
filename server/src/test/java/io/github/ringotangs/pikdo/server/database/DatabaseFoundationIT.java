@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.ringotangs.pikdo.server.Application;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
+import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
 
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mybatis.spring.annotation.MapperScan;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -41,6 +43,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
@@ -60,10 +63,7 @@ import javax.sql.DataSource;
             "pikdo.auth.mail-from=noreply@pikdo.invalid"
         })
 @AutoConfigureMockMvc
-@Import({
-    DatabaseFoundationIT.DatabaseConfiguration.class,
-    io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.class
-})
+@Import({DatabaseFoundationIT.DatabaseConfiguration.class, AuthenticationTestConfiguration.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DatabaseFoundationIT {
     @Autowired private MockMvc mockMvc;
@@ -76,8 +76,7 @@ class DatabaseFoundationIT {
     @Autowired private PostgreSQLContainer postgres;
 
     @TestConfiguration(proxyBeanMethods = false)
-    @org.mybatis.spring.annotation.MapperScan(
-            "io.github.ringotangs.pikdo.server.identity.persistence")
+    @MapperScan("io.github.ringotangs.pikdo.server.identity.persistence")
     static class DatabaseConfiguration {
         @Bean
         @ServiceConnection
@@ -211,7 +210,7 @@ class DatabaseFoundationIT {
                 jdbc.queryForList(
                         "SELECT table_name || '.' || column_name || ':' || data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('identity_users','identity_accounts','identity_password_credentials')",
                         String.class);
-        assertEquals(new java.util.HashSet<>(expected), new java.util.HashSet<>(actual));
+        assertEquals(new HashSet<>(expected), new HashSet<>(actual));
         assertEquals(
                 254,
                 jdbc.queryForObject(

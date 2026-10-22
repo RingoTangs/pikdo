@@ -19,6 +19,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.util.UUID;
+
 @WithoutDatabase
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -75,7 +77,7 @@ class SwaggerProdTest {
                             .getResponse();
             String id = response.getHeader("X-Request-ID");
             assertNotNull(id);
-            assertEquals(4, java.util.UUID.fromString(id).version());
+            assertEquals(4, UUID.fromString(id).version());
         }
         mockMvc.perform(
                         post("/examples/validation/body")

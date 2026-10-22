@@ -20,6 +20,7 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 import io.github.ringotangs.pikdo.server.identity.domain.Username;
 import io.github.ringotangs.pikdo.server.identity.domain.UsernameIdentifier;
+import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +46,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
@@ -58,10 +60,7 @@ import java.util.concurrent.TimeUnit;
             "pikdo.auth.smtp-host=localhost",
             "pikdo.auth.mail-from=noreply@pikdo.invalid"
         })
-@Import({
-    IdentityPersistenceIT.DatabaseConfiguration.class,
-    io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.class
-})
+@Import({IdentityPersistenceIT.DatabaseConfiguration.class, AuthenticationTestConfiguration.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class IdentityPersistenceIT {
     @Autowired private UserMapper users;
@@ -965,7 +964,7 @@ class IdentityPersistenceIT {
                                 user.getId().value(),
                                 "USERNAME",
                                 value,
-                                value.toLowerCase(java.util.Locale.ROOT)));
+                                value.toLowerCase(Locale.ROOT)));
     }
 
     @Test
@@ -1010,7 +1009,7 @@ class IdentityPersistenceIT {
     void databaseAcceptsValidUsernameBoundariesAndNonreservedNames(String value) {
         var user = newUser();
         var id = UuidV7Generator.generate();
-        String canonical = value.toLowerCase(java.util.Locale.ROOT);
+        String canonical = value.toLowerCase(Locale.ROOT);
         assertEquals(1, accounts.insert(id, user.getId().value(), "USERNAME", value, canonical));
         var restored = accountRepository.findById(new AccountId(id)).orElseThrow();
         assertEquals(value, restored.getIdentifier().getOriginalIdentifier());

@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -56,7 +57,7 @@ public final class VerificationCodes {
                 mac.update(value);
             }
             return mac.doFinal();
-        } catch (java.security.GeneralSecurityException failure) {
+        } catch (GeneralSecurityException failure) {
             throw new IllegalStateException("HMAC is unavailable");
         }
     }

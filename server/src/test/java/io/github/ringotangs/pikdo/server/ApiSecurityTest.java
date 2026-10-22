@@ -3,11 +3,36 @@ package io.github.ringotangs.pikdo.server;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationCleanup;
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.identity.application.EmailAuthenticationService;
+import io.github.ringotangs.pikdo.server.identity.application.VerificationCodes;
+import io.github.ringotangs.pikdo.server.identity.domain.AccountRepository;
+import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
+import io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery;
+import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.identity.security.ActiveUserSessionFilter;
+import io.github.ringotangs.pikdo.server.identity.security.ApiRequestProtectionFilter;
+import io.github.ringotangs.pikdo.server.identity.security.AuthenticationSessionService;
+import io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationController;
+import io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService;
+
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.ApplicationContext;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
 
 /** 安全过滤链本身保留运行，不依赖数据库或测试用户绕过认证。 */
 @WithoutDatabase
@@ -31,36 +56,63 @@ class ApiSecurityTest {
                 .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN"));
     }
 
-    @Autowired org.springframework.context.ApplicationContext context;
+    @Autowired ApplicationContext context;
 
     @Test
     void authenticationComponentsRemainRegisteredWithoutDatabase() throws Exception {
         for (Class<?> type :
-                java.util.List.of(
-                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationController
-                                .class,
-                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService
-                                .class,
-                        io.github.ringotangs.pikdo.server.identity.security
-                                .AuthenticationSessionService.class,
-                        io.github.ringotangs.pikdo.server.identity.application
-                                .EmailAuthenticationService.class,
-                        io.github.ringotangs.pikdo.server.identity.application
-                                .AuthenticationRateLimiter.class,
-                        io.github.ringotangs.pikdo.server.identity.application.AuthenticationCleanup
-                                .class,
-                        io.github.ringotangs.pikdo.server.identity.application.VerificationCodes
-                                .class,
-                        io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery.class,
-                        io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender.class,
-                        io.github.ringotangs.pikdo.server.identity.domain.UserRepository.class,
-                        io.github.ringotangs.pikdo.server.identity.domain.AccountRepository.class,
-                        io.github.ringotangs.pikdo.server.identity.application
-                                .AuthenticationProperties.class))
-            org.junit.jupiter.api.Assertions.assertTrue(
-                    context.getBeansOfType(type).size() == 1, type.getSimpleName());
-        org.junit.jupiter.api.Assertions.assertTrue(
-                context.containsBean("authenticationMailExecutor"));
+                List.of(
+                        EmailAuthenticationController.class,
+                        EmailAuthenticationWebService.class,
+                        AuthenticationSessionService.class,
+                        EmailAuthenticationService.class,
+                        AuthenticationRateLimiter.class,
+                        AuthenticationCleanup.class,
+                        VerificationCodes.class,
+                        AsyncEmailDelivery.class,
+                        EmailCodeSender.class,
+                        UserRepository.class,
+                        AccountRepository.class,
+                        AuthenticationProperties.class))
+            Assertions.assertTrue(context.getBeansOfType(type).size() == 1, type.getSimpleName());
+        Assertions.assertTrue(context.containsBean("authenticationMailExecutor"));
         mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk());
+    }
+
+    @Autowired AuthenticationRateLimiter rates;
+    @Autowired FilterChainProxy securityChain;
+
+    @Test
+    void filtersExistOnlyOnceInSecurityChainAndHaveNoServletBeanRegistration() throws Exception {
+        Assertions.assertTrue(context.getBeansOfType(ApiRequestProtectionFilter.class).isEmpty());
+        Assertions.assertTrue(context.getBeansOfType(ActiveUserSessionFilter.class).isEmpty());
+        var request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        request.setServletPath("/api/v1/auth/me");
+        var chain =
+                securityChain.getFilterChains().stream()
+                        .filter(candidate -> candidate.matches(request))
+                        .findFirst()
+                        .orElseThrow();
+        var filters = chain.getFilters();
+        Assertions.assertEquals(
+                1, filters.stream().filter(ApiRequestProtectionFilter.class::isInstance).count());
+        Assertions.assertEquals(
+                1, filters.stream().filter(ActiveUserSessionFilter.class::isInstance).count());
+        int protection = -1, holder = -1, active = -1, authorization = -1;
+        for (int i = 0; i < filters.size(); i++) {
+            if (filters.get(i) instanceof ApiRequestProtectionFilter) protection = i;
+            if (filters.get(i) instanceof SecurityContextHolderFilter) holder = i;
+            if (filters.get(i) instanceof ActiveUserSessionFilter) active = i;
+            if (filters.get(i) instanceof AuthorizationFilter) authorization = i;
+        }
+        Assertions.assertTrue(protection < holder && holder < active && active < authorization);
+        for (var registration : context.getBeansOfType(FilterRegistrationBean.class).values())
+            Assertions.assertFalse(
+                    registration.getFilter() instanceof ApiRequestProtectionFilter
+                            || registration.getFilter() instanceof ActiveUserSessionFilter);
+        mvc.perform(post("/api/v1/auth/login").contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        Mockito.verify(rates, Mockito.times(1)).request("127.0.0.1", false);
+        Mockito.verifyNoMoreInteractions(rates);
     }
 }

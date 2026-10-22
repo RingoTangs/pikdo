@@ -6,12 +6,16 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.security.ApiSecurityConfiguration;
 import io.github.ringotangs.pikdo.server.identity.web.dto.*;
 import io.github.ringotangs.pikdo.server.shared.web.error.ErrorMessageResolver;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -25,7 +29,11 @@ import java.util.UUID;
 /** 真实 MVC 参数绑定及校验；协调服务替身不会访问数据库或建立真实认证。 */
 @WebMvcTest(EmailAuthenticationController.class)
 @Import({ApiSecurityConfiguration.class, ErrorMessageResolver.class})
+@EnableConfigurationProperties(AuthenticationProperties.class)
 class EmailAuthenticationControllerTest {
+    @MockitoBean UserRepository securityUsers;
+    @MockitoBean AuthenticationRateLimiter securityRates;
+
     @Autowired MockMvc mvc;
     @MockitoBean EmailAuthenticationWebService service;
 

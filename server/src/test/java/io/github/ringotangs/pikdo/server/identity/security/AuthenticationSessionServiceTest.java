@@ -8,6 +8,9 @@ import io.github.ringotangs.pikdo.server.identity.application.*;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.web.dto.VerificationRequest;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+
 import org.junit.jupiter.api.*;
 import org.springframework.mock.web.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -104,8 +107,8 @@ class AuthenticationSessionServiceTest {
 
     @Test
     void invalidationFailureStillReturnsSanitizedFailure() {
-        var req = mock(jakarta.servlet.http.HttpServletRequest.class);
-        var session = mock(jakarta.servlet.http.HttpSession.class);
+        var req = mock(HttpServletRequest.class);
+        var session = mock(HttpSession.class);
         when(req.getSession()).thenReturn(session);
         when(req.getSession(false)).thenReturn(session);
         doThrow(new IllegalStateException("cleanup-detail")).when(session).invalidate();

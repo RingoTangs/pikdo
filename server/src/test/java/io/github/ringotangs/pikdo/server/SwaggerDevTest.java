@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.ringotangs.pikdo.server.controller.ExampleController;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,8 +14,20 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @WithoutDatabase
 @SpringBootTest
@@ -83,44 +96,35 @@ class SwaggerDevTest {
         mockMvc.perform(get("/examples/success"))
                 .andExpect(status().isOk())
                 .andExpect(
-                        content()
-                                .json(
-                                        "{\"message\":\"Hello World!\"}",
-                                        org.springframework.test.json.JsonCompareMode.STRICT));
+                        content().json("{\"message\":\"Hello World!\"}", JsonCompareMode.STRICT));
     }
 
-    @Autowired tools.jackson.databind.ObjectMapper json;
+    @Autowired ObjectMapper json;
 
     @Test
     void documentsRealAuthenticationOperationsAndErrorSchemas() throws Exception {
         var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();
         var api = json.readTree(result.getResponse().getContentAsString());
         var expected =
-                java.util.Map.of(
-                        "csrf", java.util.List.of("200", "403", "429", "503"),
-                        "registration-codes",
-                                java.util.List.of("202", "400", "403", "409", "429", "503"),
-                        "login-codes", java.util.List.of("202", "400", "403", "409", "429", "503"),
-                        "registrations",
-                                java.util.List.of("204", "400", "401", "403", "409", "429", "503"),
-                        "login", java.util.List.of("204", "400", "401", "403", "409", "429", "503"),
-                        "me", java.util.List.of("200", "401", "403", "503"));
+                Map.of(
+                        "csrf", List.of("200", "403", "429", "503"),
+                        "registration-codes", List.of("202", "400", "403", "409", "429", "503"),
+                        "login-codes", List.of("202", "400", "403", "409", "429", "503"),
+                        "registrations", List.of("204", "400", "401", "403", "409", "429", "503"),
+                        "login", List.of("204", "400", "401", "403", "409", "429", "503"),
+                        "me", List.of("200", "401", "403", "503"));
         for (var entry : expected.entrySet()) {
             String route = entry.getKey();
             boolean get = route.equals("csrf") || route.equals("me");
             var operation =
                     api.path("paths").path("/api/v1/auth/" + route).path(get ? "get" : "post");
-            org.junit.jupiter.api.Assertions.assertFalse(operation.isMissingNode());
-            org.junit.jupiter.api.Assertions.assertEquals(
-                    "邮箱认证", operation.path("tags").get(0).asText());
-            org.junit.jupiter.api.Assertions.assertTrue(
-                    operation.path("summary").asText().matches(".*[\\p{IsHan}].*"));
-            org.junit.jupiter.api.Assertions.assertFalse(
-                    operation.path("description").asText().isBlank());
+            Assertions.assertFalse(operation.isMissingNode());
+            Assertions.assertEquals("邮箱认证", operation.path("tags").get(0).asText());
+            Assertions.assertTrue(operation.path("summary").asText().matches(".*[\\p{IsHan}].*"));
+            Assertions.assertFalse(operation.path("description").asText().isBlank());
             for (String status : entry.getValue()) {
                 var response = operation.path("responses").path(status);
-                org.junit.jupiter.api.Assertions.assertFalse(
-                        response.isMissingNode(), route + ":" + status);
+                Assertions.assertFalse(response.isMissingNode(), route + ":" + status);
                 if (status.equals("200") || status.equals("202")) {
                     String schema =
                             route.equals("csrf")
@@ -128,7 +132,7 @@ class SwaggerDevTest {
                                     : route.equals("me")
                                             ? "CurrentUserResponse"
                                             : "IssuedCodeResponse";
-                    org.junit.jupiter.api.Assertions.assertEquals(
+                    Assertions.assertEquals(
                             "#/components/schemas/" + schema,
                             response.path("content")
                                     .path("application/json")
@@ -138,15 +142,13 @@ class SwaggerDevTest {
                 }
                 if (status.startsWith("4") || status.equals("503")) {
                     String reference = response.path("$ref").asText();
-                    org.junit.jupiter.api.Assertions.assertTrue(
-                            reference.startsWith("#/components/responses/Identity"));
+                    Assertions.assertTrue(reference.startsWith("#/components/responses/Identity"));
                     var definition =
                             api.path("components")
                                     .path("responses")
                                     .path(reference.substring(reference.lastIndexOf('/') + 1));
-                    org.junit.jupiter.api.Assertions.assertFalse(
-                            definition.path("description").asText().isBlank());
-                    org.junit.jupiter.api.Assertions.assertEquals(
+                    Assertions.assertFalse(definition.path("description").asText().isBlank());
+                    Assertions.assertEquals(
                             "#/components/schemas/ErrorResponse",
                             definition
                                     .path("content")
@@ -156,32 +158,31 @@ class SwaggerDevTest {
                                     .asText());
                 }
                 if (status.equals("204"))
-                    org.junit.jupiter.api.Assertions.assertTrue(
+                    Assertions.assertTrue(
                             response.path("content").isMissingNode()
                                     || response.path("content").isEmpty());
             }
             if (!get) {
-                var headers = new java.util.ArrayList<tools.jackson.databind.JsonNode>();
+                var headers = new ArrayList<JsonNode>();
                 operation.path("parameters").forEach(headers::add);
                 var csrf =
                         headers.stream()
                                 .filter(node -> node.path("name").asText().equals("X-CSRF-TOKEN"))
                                 .findFirst()
                                 .orElseThrow();
-                org.junit.jupiter.api.Assertions.assertEquals("header", csrf.path("in").asText());
-                org.junit.jupiter.api.Assertions.assertTrue(csrf.path("required").asBoolean());
-                org.junit.jupiter.api.Assertions.assertEquals(
-                        "string", csrf.path("schema").path("type").asText());
+                Assertions.assertEquals("header", csrf.path("in").asText());
+                Assertions.assertTrue(csrf.path("required").asBoolean());
+                Assertions.assertEquals("string", csrf.path("schema").path("type").asText());
             }
         }
-        org.junit.jupiter.api.Assertions.assertEquals(
-                java.util.Set.of("code", "message"),
+        Assertions.assertEquals(
+                Set.of("code", "message"),
                 api.path("components")
                         .path("schemas")
                         .path("ErrorResponse")
                         .path("properties")
                         .propertyNames());
-        org.junit.jupiter.api.Assertions.assertEquals(
+        Assertions.assertEquals(
                 "#/components/schemas/VerificationRequest",
                 api.path("paths")
                         .path("/api/v1/auth/login")
@@ -192,7 +193,7 @@ class SwaggerDevTest {
                         .path("schema")
                         .path("$ref")
                         .asText());
-        org.junit.jupiter.api.Assertions.assertEquals(
+        Assertions.assertEquals(
                 "[0-9]{6}",
                 api.path("components")
                         .path("schemas")
@@ -201,7 +202,7 @@ class SwaggerDevTest {
                         .path("code")
                         .path("pattern")
                         .asText());
-        org.junit.jupiter.api.Assertions.assertTrue(
+        Assertions.assertTrue(
                 api.path("components")
                         .path("schemas")
                         .path("VerificationRequest")
@@ -210,9 +211,9 @@ class SwaggerDevTest {
                         .path("example")
                         .isMissingNode());
         var cookie = api.path("components").path("securitySchemes").path("SessionCookie");
-        org.junit.jupiter.api.Assertions.assertEquals("cookie", cookie.path("in").asText());
-        org.junit.jupiter.api.Assertions.assertEquals("PIKDOSESSION", cookie.path("name").asText());
-        org.junit.jupiter.api.Assertions.assertFalse(
+        Assertions.assertEquals("cookie", cookie.path("in").asText());
+        Assertions.assertEquals("PIKDOSESSION", cookie.path("name").asText());
+        Assertions.assertFalse(
                 api.path("paths")
                         .path("/api/v1/auth/me")
                         .path("get")
@@ -231,32 +232,23 @@ class SwaggerDevTest {
                                 .getResponse()
                                 .getContentAsString());
         var operation = api.path("paths").path("/api/v1/auth/logout").path("post");
-        org.junit.jupiter.api.Assertions.assertEquals("退出登录", operation.path("summary").asText());
-        org.junit.jupiter.api.Assertions.assertTrue(operation.path("requestBody").isMissingNode());
-        for (String status : java.util.List.of("204", "403", "503"))
-            org.junit.jupiter.api.Assertions.assertFalse(
-                    operation.path("responses").path(status).isMissingNode());
-        org.junit.jupiter.api.Assertions.assertTrue(
+        Assertions.assertEquals("退出登录", operation.path("summary").asText());
+        Assertions.assertTrue(operation.path("requestBody").isMissingNode());
+        for (String status : List.of("204", "403", "503"))
+            Assertions.assertFalse(operation.path("responses").path(status).isMissingNode());
+        Assertions.assertTrue(
                 operation.path("responses").path("204").path("content").isMissingNode());
         var mappings =
-                context.getBean(
-                        "requestMappingHandlerMapping",
-                        org.springframework.web.servlet.mvc.method.annotation
-                                .RequestMappingHandlerMapping.class);
-        org.junit.jupiter.api.Assertions.assertTrue(
+                context.getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
+        Assertions.assertTrue(
                 mappings.getHandlerMethods().keySet().stream()
                         .flatMap(mapping -> mapping.getPatternValues().stream())
                         .noneMatch(path -> path.equals("/api/v1/auth/logout")));
-        mockMvc.perform(
-                        org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
-                                "/api/v1/auth/logout"))
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/logout"))
                 .andExpect(status().isForbidden());
         mockMvc.perform(
-                        org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
-                                        "/api/v1/auth/logout")
-                                .with(
-                                        org.springframework.security.test.web.servlet.request
-                                                .SecurityMockMvcRequestPostProcessors.csrf()))
+                        MockMvcRequestBuilders.post("/api/v1/auth/logout")
+                                .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNoContent());
     }
 }

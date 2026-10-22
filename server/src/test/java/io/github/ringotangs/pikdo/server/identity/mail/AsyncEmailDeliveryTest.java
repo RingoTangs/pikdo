@@ -4,10 +4,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+
 import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
 import io.github.ringotangs.pikdo.server.identity.persistence.*;
 
 import org.junit.jupiter.api.*;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 
@@ -159,15 +165,9 @@ class AsyncEmailDeliveryTest {
                 .when(sender)
                 .send(anyString(), any(), anyString());
         when(challenges.invalidate(any(), any()))
-                .thenThrow(
-                        new org.springframework.dao.DataAccessResourceFailureException(
-                                "secret@example.com 123456"));
-        var logger =
-                (ch.qos.logback.classic.Logger)
-                        org.slf4j.LoggerFactory.getLogger(AsyncEmailDelivery.class);
-        var logs =
-                new ch.qos.logback.core.read.ListAppender<
-                        ch.qos.logback.classic.spi.ILoggingEvent>();
+                .thenThrow(new DataAccessResourceFailureException("secret@example.com 123456"));
+        var logger = (Logger) LoggerFactory.getLogger(AsyncEmailDelivery.class);
+        var logs = new ListAppender<ILoggingEvent>();
         logs.start();
         logger.addAppender(logs);
         try {
