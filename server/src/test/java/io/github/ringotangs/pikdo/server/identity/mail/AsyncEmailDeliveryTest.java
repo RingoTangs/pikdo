@@ -8,7 +8,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
-import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
+import io.github.ringotangs.pikdo.server.identity.domain.CodePurpose;
 import io.github.ringotangs.pikdo.server.identity.persistence.*;
 
 import org.junit.jupiter.api.*;
@@ -64,7 +64,12 @@ class AsyncEmailDeliveryTest {
     }
 
     AsyncEmailDelivery delivery(Executor executor) {
-        return new AsyncEmailDelivery(executor, sender, challenges, manager, clock);
+        return new AsyncEmailDelivery(
+                executor,
+                sender,
+                new VerificationChallengeRepositoryImpl(challenges),
+                manager,
+                clock);
     }
 
     void commit() {
@@ -79,8 +84,8 @@ class AsyncEmailDeliveryTest {
         when(challenges.lockById(eligible.id())).thenReturn(Optional.of(eligible));
         when(challenges.lockById(inert.id())).thenReturn(Optional.of(inert));
         var delivery = delivery(queue::add);
-        delivery.afterCommit(eligible, CodePurpose.REGISTER, "123456");
-        delivery.afterCommit(inert, CodePurpose.REGISTER, "654321");
+        delivery.afterCommit(eligible.id(), CodePurpose.REGISTER, "123456");
+        delivery.afterCommit(inert.id(), CodePurpose.REGISTER, "654321");
         assertTrue(queue.isEmpty());
         verifyNoInteractions(sender);
         commit();
@@ -134,7 +139,7 @@ class AsyncEmailDeliveryTest {
                         Optional.of(invalidated),
                         Optional.empty());
         for (int i = 0; i < 4; i++)
-            delivery(queue::add).afterCommit(base, CodePurpose.REGISTER, "123456");
+            delivery(queue::add).afterCommit(base.id(), CodePurpose.REGISTER, "123456");
         commit();
         queue.forEach(Runnable::run);
         verifyNoInteractions(sender);
@@ -144,13 +149,15 @@ class AsyncEmailDeliveryTest {
     void rejectionInvalidatesEitherEligibilityWithoutThrowing() {
         var eligible = row(true);
         var inert = row(false);
+        when(challenges.lockById(eligible.id())).thenReturn(Optional.of(eligible));
+        when(challenges.lockById(inert.id())).thenReturn(Optional.of(inert));
         var delivery =
                 delivery(
                         task -> {
                             throw new RejectedExecutionException("secret@example.com 123456");
                         });
-        delivery.afterCommit(eligible, CodePurpose.REGISTER, "123456");
-        delivery.afterCommit(inert, CodePurpose.REGISTER, "123456");
+        delivery.afterCommit(eligible.id(), CodePurpose.REGISTER, "123456");
+        delivery.afterCommit(inert.id(), CodePurpose.REGISTER, "123456");
         assertDoesNotThrow(this::commit);
         verify(challenges).invalidate(eq(eligible.id()), any());
         verify(challenges).invalidate(eq(inert.id()), any());
@@ -171,7 +178,7 @@ class AsyncEmailDeliveryTest {
         logs.start();
         logger.addAppender(logs);
         try {
-            delivery(queue::add).afterCommit(row, CodePurpose.REGISTER, "123456");
+            delivery(queue::add).afterCommit(row.id(), CodePurpose.REGISTER, "123456");
             commit();
             assertDoesNotThrow(() -> queue.getFirst().run());
             assertEquals(2, logs.list.size());
@@ -190,7 +197,7 @@ class AsyncEmailDeliveryTest {
     void backgroundReadsKeepRequiresNewPropagation() {
         var row = row(true);
         when(challenges.lockById(row.id())).thenReturn(Optional.of(row));
-        delivery(queue::add).afterCommit(row, CodePurpose.REGISTER, "123456");
+        delivery(queue::add).afterCommit(row.id(), CodePurpose.REGISTER, "123456");
         commit();
         queue.getFirst().run();
         verify(manager)

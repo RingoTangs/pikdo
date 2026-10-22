@@ -1,6 +1,7 @@
 package io.github.ringotangs.pikdo.server.identity.web;
 
 import io.github.ringotangs.pikdo.server.identity.application.*;
+import io.github.ringotangs.pikdo.server.identity.domain.CodePurpose;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
 import io.github.ringotangs.pikdo.server.identity.security.AuthenticationSessionService;
 import io.github.ringotangs.pikdo.server.identity.web.dto.*;

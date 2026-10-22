@@ -1,8 +1,7 @@
 package io.github.ringotangs.pikdo.server.identity.mail;
 
-import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
+import io.github.ringotangs.pikdo.server.identity.domain.CodePurpose;
+import io.github.ringotangs.pikdo.server.identity.domain.VerificationChallengeRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,14 +23,14 @@ public final class AsyncEmailDelivery {
     private static final Logger log = LoggerFactory.getLogger(AsyncEmailDelivery.class);
     private final Executor executor;
     private final EmailCodeSender sender;
-    private final EmailChallengeMapper challenges;
+    private final VerificationChallengeRepository challenges;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
     public AsyncEmailDelivery(
             @Qualifier("authenticationMailExecutor") Executor executor,
             EmailCodeSender sender,
-            EmailChallengeMapper challenges,
+            VerificationChallengeRepository challenges,
             PlatformTransactionManager manager,
             Clock clock) {
         this.executor = executor;
@@ -42,12 +41,12 @@ public final class AsyncEmailDelivery {
         this.clock = clock;
     }
 
-    public void afterCommit(EmailChallengeRow row, CodePurpose purpose, String code) {
+    public void afterCommit(UUID id, CodePurpose purpose, String code) {
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        submit(row.id(), purpose, code);
+                        submit(id, purpose, code);
                     }
                 });
     }
@@ -63,14 +62,9 @@ public final class AsyncEmailDelivery {
 
     private void deliver(UUID id, CodePurpose purpose, String code) {
         try {
-            var row = transactions.execute(status -> challenges.lockById(id).orElse(null));
-            if (row == null
-                    || !row.eligible()
-                    || row.attempts() >= row.maxAttempts()
-                    || row.consumedAt() != null
-                    || row.invalidatedAt() != null
-                    || !row.expiresAt().isAfter(now())) return;
-            sender.send(row.originalEmail(), purpose, code);
+            var challenge = transactions.execute(status -> challenges.lockById(id).orElse(null));
+            if (challenge == null || !challenge.canDeliver(now())) return;
+            sender.send(challenge.originalEmail(), purpose, code);
         } catch (RuntimeException failure) {
             log.warn("Email verification delivery failed");
             invalidate(id);

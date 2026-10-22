@@ -1,7 +1,7 @@
 package io.github.ringotangs.pikdo.server.identity.mail;
 
 import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
-import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
+import io.github.ringotangs.pikdo.server.identity.domain.CodePurpose;
 
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSenderImpl;

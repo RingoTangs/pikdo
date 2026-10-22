@@ -134,7 +134,7 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含领域持久化 Row、原生 MyBatis Mapper、验证码挑战及限流 Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl 三个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含领域持久化 Row、原生 MyBatis Mapper、验证码挑战及限流 Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl、VerificationChallengeRepositoryImpl 四个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 包含 UsernameIdentifier、EmailIdentifier、PhoneIdentifier，分别包装 Username、EmailAddress、PhoneNumber；User 的现有语义不变。
@@ -180,6 +180,8 @@ RepositoryImpl 实现对应领域接口并通过构造器接收 Mapper。UserRep
 
 
 ## 邮箱验证码认证
+
+`VerificationChallenge` 管理用途／邮箱／浏览器绑定、有效期、错误次数及消费和失效状态；只保存摘要并使用常量时间比较。`VerificationCodes` 负责随机数与 HMAC，Application Service 负责身份规则和事务，Repository 负责领域对象与 Row 转换。校验失败的错误次数先提交再返回认证失败；注册创建 User、Account 与条件消费挑战保持同一事务，行锁和数据库条件更新共同保证一次性消费。
 
 所有接口位于 `/api/v1/auth`，响应禁止缓存，错误沿用 `{code,message}`。先 GET `/csrf`，保存 Cookie，再将响应的 `headerName` 和 `token` 用作后续 POST 的请求头。认证成功后 CSRF Token 失效，应重新获取。不要在日志中记录请求体、验证码、邮件正文或 SMTP 凭据，也不要打开邮件或 SQL 参数调试日志。
 

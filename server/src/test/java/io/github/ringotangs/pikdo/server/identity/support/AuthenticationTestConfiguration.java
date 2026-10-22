@@ -1,6 +1,6 @@
 package io.github.ringotangs.pikdo.server.identity.support;
 
-import io.github.ringotangs.pikdo.server.identity.application.CodePurpose;
+import io.github.ringotangs.pikdo.server.identity.domain.CodePurpose;
 import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
 
 import org.awaitility.Awaitility;

@@ -11,7 +11,6 @@ import io.github.ringotangs.pikdo.server.Application;
 import io.github.ringotangs.pikdo.server.identity.domain.*;
 import io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery;
 import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
 import io.github.ringotangs.pikdo.server.identity.security.AuthenticationSessionService;
 import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.*;
@@ -312,6 +311,61 @@ class EmailAuthenticationIT {
     }
 
     @Test
+    void failedAttemptIsRestoredBeforeSuccessfulConsumption() {
+        var email = EmailAddress.create("retry-success@example.com");
+        var issued = service.send(CodePurpose.REGISTER, email, "flow", "send-source");
+        var code = mail.code(email.getOriginalAddress(), CodePurpose.REGISTER);
+        var wrong = code.equals("000000") ? "000001" : "000000";
+        var failure =
+                assertThrows(
+                        AuthenticationFailure.class,
+                        () ->
+                                service.complete(
+                                        CodePurpose.REGISTER,
+                                        issued.challengeId(),
+                                        email,
+                                        wrong,
+                                        "flow",
+                                        "verify-source"));
+        assertEquals(AuthenticationFailure.Reason.INVALID, failure.reason());
+        var transaction = new TransactionTemplate(transactions);
+        var restored =
+                transaction.execute(
+                        status -> challenges.lockById(issued.challengeId()).orElseThrow());
+        assertNotNull(restored);
+        assertEquals(1, restored.attempts());
+        assertNull(restored.consumedAt());
+        var userId =
+                service.complete(
+                        CodePurpose.REGISTER,
+                        issued.challengeId(),
+                        email,
+                        code,
+                        "flow",
+                        "verify-source");
+        assertTrue(users.findById(userId).isPresent());
+        var consumed =
+                transaction.execute(
+                        status -> challenges.lockById(issued.challengeId()).orElseThrow());
+        assertNotNull(consumed);
+        assertEquals(1, consumed.attempts());
+        assertNotNull(consumed.consumedAt());
+        var replay =
+                assertThrows(
+                        AuthenticationFailure.class,
+                        () ->
+                                service.complete(
+                                        CodePurpose.REGISTER,
+                                        issued.challengeId(),
+                                        email,
+                                        code,
+                                        "flow",
+                                        "verify-source"));
+        assertEquals(AuthenticationFailure.Reason.INVALID, replay.reason());
+        assertEquals(1, count("identity_users"));
+    }
+
+    @Test
     void expiryPurposeAndBrowserBindingAreEnforced() throws Exception {
         var first = browser();
         var id = first.send("registration", "expiry@example.com");
@@ -325,6 +379,19 @@ class EmailAuthenticationIT {
                         .verify("registrations", id, "expiry@example.com", code)
                         .getResponse()
                         .getStatus());
+        assertEquals(
+                401,
+                first.verify("registrations", id, "other@example.com", code)
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT attempts FROM identity_email_challenges", Integer.class));
+        assertNull(
+                jdbc.queryForObject(
+                        "SELECT invalidated_at FROM identity_email_challenges",
+                        OffsetDateTime.class));
         clock.advance(Duration.ofMinutes(5));
         assertEquals(
                 401,
@@ -437,7 +504,7 @@ class EmailAuthenticationIT {
     @Autowired AuthenticationRateLimiter limiter;
     @Autowired AuthenticationProperties properties;
 
-    @Autowired EmailChallengeMapper challenges;
+    @Autowired VerificationChallengeRepository challenges;
 
     @Autowired PlatformTransactionManager transactions;
 
@@ -977,10 +1044,12 @@ class EmailAuthenticationIT {
                         AuthenticationSessionService.class,
                         AsyncEmailDelivery.class,
                         UserRepository.class,
-                        AccountRepository.class))
+                        AccountRepository.class,
+                        VerificationChallengeRepository.class))
             assertEquals(1, context.getBeansOfType(type).size(), type.getSimpleName());
         assertTrue(AopUtils.isAopProxy(users));
         assertTrue(AopUtils.isAopProxy(accounts));
+        assertTrue(AopUtils.isAopProxy(challenges));
         assertFalse(context.containsBean("authenticationUsers"));
         assertFalse(context.containsBean("authenticationAccounts"));
     }

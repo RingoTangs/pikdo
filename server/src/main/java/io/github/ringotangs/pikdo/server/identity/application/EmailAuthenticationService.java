@@ -2,8 +2,6 @@ package io.github.ringotangs.pikdo.server.identity.application;
 
 import io.github.ringotangs.pikdo.server.identity.domain.*;
 import io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -22,7 +20,7 @@ import java.util.UUID;
 public final class EmailAuthenticationService {
     private final UserRepository users;
     private final AccountRepository accounts;
-    private final EmailChallengeMapper challenges;
+    private final VerificationChallengeRepository challenges;
     private final VerificationCodes codes;
     private final AuthenticationRateLimiter rates;
     private final AsyncEmailDelivery delivery;
@@ -35,7 +33,7 @@ public final class EmailAuthenticationService {
     public EmailAuthenticationService(
             UserRepository users,
             AccountRepository accounts,
-            EmailChallengeMapper challenges,
+            VerificationChallengeRepository challenges,
             VerificationCodes codes,
             AuthenticationRateLimiter rates,
             AsyncEmailDelivery delivery,
@@ -58,7 +56,7 @@ public final class EmailAuthenticationService {
         var id = UuidV7Generator.generate();
         var now = now();
         String code = codes.generate();
-        var row =
+        var issued =
                 transactions.execute(
                         status -> {
                             var account = accounts.findByIdentifier(new EmailIdentifier(email));
@@ -79,11 +77,10 @@ public final class EmailAuthenticationService {
                                             ? account.get().getIdentifier().getOriginalIdentifier()
                                             : email.getOriginalAddress();
                             var challenge =
-                                    new EmailChallengeRow(
+                                    VerificationChallenge.create(
                                             id,
-                                            purpose.name(),
-                                            email.getCanonicalAddress(),
-                                            original,
+                                            purpose,
+                                            EmailAddress.create(original),
                                             codes.digest("flow", flow),
                                             codeDigest(
                                                     id,
@@ -92,26 +89,19 @@ public final class EmailAuthenticationService {
                                                     flow,
                                                     code),
                                             eligible,
-                                            0,
                                             properties.maxAttempts(),
                                             now.plusMinutes(5),
-                                            null,
-                                            null,
                                             account.map(a -> a.getId().value()).orElse(null),
                                             account.map(a -> a.getUserId().value()).orElse(null));
-                            challenges.invalidateFlow(
-                                    challenge.flowDigest(),
-                                    email.getCanonicalAddress(),
-                                    purpose.name(),
-                                    now);
-                            if (challenges.insert(challenge) != 1)
-                                throw new IllegalStateException("Challenge insertion failed");
-                            delivery.afterCommit(challenge, purpose, code);
+                            challenges.invalidateFlow(challenge, now);
+                            challenges.insert(challenge);
+                            delivery.afterCommit(challenge.id(), purpose, code);
                             return challenge;
                         });
-        if (row == null) throw new AuthenticationFailure(AuthenticationFailure.Reason.UNAVAILABLE);
+        if (issued == null)
+            throw new AuthenticationFailure(AuthenticationFailure.Reason.UNAVAILABLE);
         return new IssuedCode(
-                id, row.expiresAt().toInstant(), properties.resendInterval().toSeconds());
+                id, issued.expiresAt().toInstant(), properties.resendInterval().toSeconds());
     }
 
     public UserId complete(
@@ -138,31 +128,26 @@ public final class EmailAuthenticationService {
 
     private Optional<UserId> verifyAndConsume(
             CodePurpose purpose, UUID challengeId, EmailAddress email, String code, String flow) {
-        var row = challenges.lockById(challengeId).orElse(null);
+        var challenge = challenges.lockById(challengeId).orElse(null);
         var now = now();
-        // 不允许另一个用途、邮箱或浏览器消耗该挑战的次数。
-        if (row == null
-                || !row.purpose().equals(purpose.name())
-                || !row.canonicalEmail().equals(email.getCanonicalAddress())
-                || !codes.matches(row.flowDigest(), codes.digest("flow", flow)))
-            return Optional.empty();
-        if (row.consumedAt() != null
-                || row.invalidatedAt() != null
-                || !row.expiresAt().isAfter(now)
-                || row.attempts() >= row.maxAttempts()) return Optional.empty();
-        boolean matches =
-                codes.matches(
-                        row.codeDigest(),
-                        codeDigest(row.id(), purpose, row.canonicalEmail(), flow, code));
-        if (!matches || !row.eligible()) {
-            challenges.failedAttempt(row.id(), now);
-            // 返回结果而不在事务内抛业务异常，确保错误尝试次数提交。
-            return Optional.empty();
+        if (challenge == null) return Optional.empty();
+        var verification =
+                challenge.verify(
+                        purpose,
+                        email,
+                        codes.digest("flow", flow),
+                        codeDigest(
+                                challenge.id(), purpose, email.getCanonicalAddress(), flow, code),
+                        now);
+        if (verification == VerificationResult.FAILED_ATTEMPT) {
+            challenges.failedAttempt(challenge, now);
         }
+        // 返回结果而不在事务内抛业务异常，确保错误尝试次数提交。
+        if (verification != VerificationResult.VERIFIED) return Optional.empty();
         UserId userId;
         if (purpose == CodePurpose.REGISTER) {
             if (accounts.findByIdentifier(new EmailIdentifier(email)).isPresent()) {
-                challenges.invalidate(row.id(), now);
+                challenges.invalidate(challenge.id(), now);
                 return Optional.empty();
             }
             userId = new UserId(UuidV7Generator.generate());
@@ -171,26 +156,27 @@ public final class EmailAuthenticationService {
                     Account.create(
                             new AccountId(UuidV7Generator.generate()),
                             userId,
-                            new EmailIdentifier(EmailAddress.create(row.originalEmail()))));
+                            new EmailIdentifier(EmailAddress.create(challenge.originalEmail()))));
         } else {
             var account = accounts.findByIdentifier(new EmailIdentifier(email)).orElse(null);
             if (account == null
-                    || !account.getId().value().equals(row.accountId())
-                    || !account.getUserId().value().equals(row.userId())) {
-                challenges.invalidate(row.id(), now);
+                    || !account.getId().value().equals(challenge.accountId())
+                    || !account.getUserId().value().equals(challenge.userId())) {
+                challenges.invalidate(challenge.id(), now);
                 return Optional.empty();
             }
             userId = account.getUserId();
-            if (challenges.lockUser(userId.value()).isEmpty()
+            if (!challenges.lockUser(userId)
                     || users.findById(userId)
                             .filter(user -> user.getStatus() == UserStatus.ACTIVE)
                             .isEmpty()) {
-                challenges.invalidate(row.id(), now);
+                challenges.invalidate(challenge.id(), now);
                 return Optional.empty();
             }
         }
-        if (challenges.consume(row.id(), now) != 1)
+        if (!challenge.consume(now))
             throw new IllegalStateException("Challenge consumption failed");
+        challenges.consume(challenge);
         return Optional.of(userId);
     }
 
