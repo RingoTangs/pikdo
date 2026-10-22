@@ -7,14 +7,22 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Constructor-wired persistence boundary; transaction ownership remains with the caller. */
+/** 复用现有密码 Mapper 的领域持久化实现。保持数据库版本比较和递增的原子性，不自动重试，事务由调用方负责。 */
 public final class PasswordCredentialRepositoryImpl implements PasswordCredentialRepository {
+    /** 构造器注入的 Mapper，不在此创建连接或接管事务。 */
     private final PasswordCredentialMapper mapper;
 
+    /**
+     * 使用已有 Mapper 创建持久化实现，不接管事务边界。
+     *
+     * @param mapper 通过构造器提供的 MyBatis Mapper
+     * @throws NullPointerException 必要参数为 null
+     */
     public PasswordCredentialRepositoryImpl(PasswordCredentialMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
+    /** {@inheritDoc} */
     @Override
     public void insert(PasswordCredential credential) {
         Objects.requireNonNull(credential, "credential");
@@ -32,12 +40,14 @@ public final class PasswordCredentialRepositoryImpl implements PasswordCredentia
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public Optional<PasswordCredential> findByUserId(UserId userId) {
         Objects.requireNonNull(userId, "userId");
         return mapper.findByUserId(userId.value()).map(PasswordCredentialRepositoryImpl::fromRow);
     }
 
+    /** {@inheritDoc} */
     @Override
     public boolean updateIfVersionMatches(
             UserId userId, long expectedVersion, String passwordHash, String passwordInputVersion) {
@@ -61,6 +71,13 @@ public final class PasswordCredentialRepositoryImpl implements PasswordCredentia
         return true;
     }
 
+    /**
+     * 通过领域校验还原数据库记录；不信任未知状态、非法字段或不一致的规范化键。
+     *
+     * @param row 待还原的数据库记录
+     * @return 还原的领域对象
+     * @throws IllegalStateException 记录无法还原为合法领域对象
+     */
     static PasswordCredential fromRow(PasswordCredentialRow row) {
         try {
             return PasswordCredential.restore(

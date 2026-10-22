@@ -7,9 +7,17 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
+/** 按 UserId 管理密码记录的参数化 SQL 映射。多种登录身份共享同一条记录；认证版本条件更新在数据库中原子完成。 */
 @Mapper
 public interface PasswordCredentialMapper {
-    // 凭据以 UserId 为主键，增加邮箱或手机号绑定不会新增一套密码。
+    /**
+     * 使用参数化 SQL 创建一条记录，由数据库执行唯一性和外键校验。认证版本使用数据库默认值 0。
+     *
+     * @param userId 用户标识
+     * @param passwordHash 已由调用方计算的密码哈希，不得传入明文密码
+     * @param passwordInputVersion 密码输入处理版本的不透明标识，不解释具体策略
+     * @return 插入影响的行数，正常为 1
+     */
     @Insert(
             """
             INSERT INTO identity_password_credentials (user_id, password_hash, password_input_version)
@@ -20,6 +28,12 @@ public interface PasswordCredentialMapper {
             @Param("passwordHash") String passwordHash,
             @Param("passwordInputVersion") String passwordInputVersion);
 
+    /**
+     * 按用户标识查询记录。
+     *
+     * @param userId 用户标识
+     * @return 查询结果；不存在时返回 Optional.empty()
+     */
     @Select(
             """
             SELECT user_id, password_hash, authentication_version, password_input_version, created_at, updated_at
@@ -36,8 +50,15 @@ public interface PasswordCredentialMapper {
     })
     Optional<PasswordCredentialRow> findByUserId(@Param("userId") UUID userId);
 
-    /** Returns zero when the user is absent or the expected version is stale; never retries. */
-    // 版本比较、哈希替换和版本递增在同一 SQL 中完成，避免并发更新覆盖已提交的密码。
+    /**
+     * 按预期版本原子替换密码哈希和输入版本并递增认证版本，不自动重试，不修改已有领域对象。
+     *
+     * @param userId 用户标识
+     * @param expectedVersion 待比较的预期认证版本
+     * @param passwordHash 已由调用方计算的密码哈希，不得传入明文密码
+     * @param passwordInputVersion 密码输入处理版本的不透明标识，不解释具体策略
+     * @return 影响行数：匹配时为 1，记录不存在或版本不匹配时为 0
+     */
     @Update(
             """
             UPDATE identity_password_credentials

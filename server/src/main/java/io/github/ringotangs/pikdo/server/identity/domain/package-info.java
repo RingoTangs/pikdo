@@ -1,3 +1,4 @@
+/** Identity 领域对象、值对象及 Repository 契约。仅表达当前用户、登录身份和密码凭据规则，不依赖持久化框架或实现认证流程。 */
 @NullMarked
 package io.github.ringotangs.pikdo.server.identity.domain;
 
