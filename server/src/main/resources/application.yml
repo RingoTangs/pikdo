@@ -2,6 +2,11 @@ spring:
   datasource:
     driver-class-name: org.postgresql.Driver
     embedded-database-connection: none
+  session:
+    timeout: 30m
+    jdbc:
+      initialize-schema: never
+      flush-mode: immediate
   sql:
     init:
       mode: never
@@ -20,6 +25,15 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    session:
+      tracking-modes: cookie
+      cookie:
+        name: __Host-PIKDOSESSION
+        http-only: true
+        secure: true
+        same-site: lax
+        path: /
 
 management:
   endpoints:
@@ -44,3 +58,12 @@ logging:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+
+pikdo:
+  auth:
+    hmac-key: ${PIKDO_AUTH_HMAC_KEY:}
+    smtp-host: ${PIKDO_AUTH_SMTP_HOST:}
+    smtp-port: ${PIKDO_AUTH_SMTP_PORT:587}
+    smtp-username: ${PIKDO_AUTH_SMTP_USERNAME:}
+    smtp-password: ${PIKDO_AUTH_SMTP_PASSWORD:}
+    mail-from: ${PIKDO_AUTH_MAIL_FROM:}

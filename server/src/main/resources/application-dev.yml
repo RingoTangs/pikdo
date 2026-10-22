@@ -10,3 +10,16 @@ springdoc:
     enabled: true
   swagger-ui:
     enabled: true
+
+server:
+  servlet:
+    session:
+      cookie:
+        name: PIKDOSESSION
+        secure: false
+
+pikdo:
+  auth:
+    smtp-host: localhost
+    smtp-port: 1025
+    mail-from: noreply@pikdo.invalid

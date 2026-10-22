@@ -52,9 +52,18 @@ import javax.sql.DataSource;
 /**
  * Real PostgreSQL only. The Spring context owns the container, so cached pools never outlive it.
  */
-@SpringBootTest(classes = Application.class)
+@SpringBootTest(
+        classes = Application.class,
+        properties = {
+            "pikdo.auth.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "pikdo.auth.smtp-host=localhost",
+            "pikdo.auth.mail-from=noreply@pikdo.invalid"
+        })
 @AutoConfigureMockMvc
-@Import(DatabaseFoundationIT.DatabaseConfiguration.class)
+@Import({
+    DatabaseFoundationIT.DatabaseConfiguration.class,
+    io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.class
+})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DatabaseFoundationIT {
     @Autowired private MockMvc mockMvc;
@@ -67,6 +76,8 @@ class DatabaseFoundationIT {
     @Autowired private PostgreSQLContainer postgres;
 
     @TestConfiguration(proxyBeanMethods = false)
+    @org.mybatis.spring.annotation.MapperScan(
+            "io.github.ringotangs.pikdo.server.identity.persistence")
     static class DatabaseConfiguration {
         @Bean
         @ServiceConnection
@@ -160,7 +171,7 @@ class DatabaseFoundationIT {
                 jdbc.queryForObject(
                         "SELECT count(*) FROM flyway_schema_history WHERE version = '2' AND success",
                         Long.class));
-        assertEquals(3, flyway.info().applied().length);
+        assertEquals(5, flyway.info().applied().length);
         assertEquals(
                 1L,
                 jdbc.queryForObject(
@@ -168,11 +179,11 @@ class DatabaseFoundationIT {
                         Long.class));
         flyway.validate();
         assertEquals(0, flyway.migrate().migrationsExecuted);
-        assertEquals(3, flyway.info().applied().length);
+        assertEquals(5, flyway.info().applied().length);
         assertEquals(
                 3L,
                 jdbc.queryForObject(
-                        "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'identity_%'",
+                        "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('identity_users','identity_accounts','identity_password_credentials')",
                         Long.class));
     }
 
@@ -198,7 +209,7 @@ class DatabaseFoundationIT {
                         "identity_password_credentials.updated_at:timestamp with time zone:NO");
         var actual =
                 jdbc.queryForList(
-                        "SELECT table_name || '.' || column_name || ':' || data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name LIKE 'identity_%'",
+                        "SELECT table_name || '.' || column_name || ':' || data_type || ':' || is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('identity_users','identity_accounts','identity_password_credentials')",
                         String.class);
         assertEquals(new java.util.HashSet<>(expected), new java.util.HashSet<>(actual));
         assertEquals(

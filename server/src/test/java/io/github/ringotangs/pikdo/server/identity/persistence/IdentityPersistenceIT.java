@@ -51,8 +51,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /** Uses production mapper discovery, not the foundation test's explicitly registered probe. */
-@SpringBootTest(classes = Application.class)
-@Import(IdentityPersistenceIT.DatabaseConfiguration.class)
+@SpringBootTest(
+        classes = Application.class,
+        properties = {
+            "pikdo.auth.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "pikdo.auth.smtp-host=localhost",
+            "pikdo.auth.mail-from=noreply@pikdo.invalid"
+        })
+@Import({
+    IdentityPersistenceIT.DatabaseConfiguration.class,
+    io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration.class
+})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class IdentityPersistenceIT {
     @Autowired private UserMapper users;

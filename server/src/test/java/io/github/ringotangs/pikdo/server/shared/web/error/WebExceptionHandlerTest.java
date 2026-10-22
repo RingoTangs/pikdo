@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
         value = WebExceptionHandlerTest.TestController.class,
         properties = "spring.messages.basename=messages,test-messages")
 @Import({
+    io.github.ringotangs.pikdo.server.identity.security.ApiSecurityConfiguration.class,
     RequestIdConfiguration.class,
     WebExceptionHandler.class,
     ErrorMessageResolver.class,

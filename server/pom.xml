@@ -54,6 +54,24 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Cookie 认证、PostgreSQL Session 和可配置 SMTP；沿用 Boot 管理版本。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-session-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 标准健康检查；版本由 Spring Boot Parent 管理。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

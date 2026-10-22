@@ -1,6 +1,6 @@
 # Pikdo Server
 
-Pikdo 面向商家和电商运营的数据采集与分析 SaaS 平台的 Java 后端。当前是模块化单体基础工程，提供 Web 基础设施，尚未实现 SaaS 业务。
+Pikdo 面向商家和电商运营的数据采集与分析 SaaS 平台的 Java 后端。当前采用模块化单体架构，提供 Web 基础设施、Identity 持久化和第一版邮箱验证码注册／登录。
 
 ## 技术栈与环境
 
@@ -105,7 +105,7 @@ docker compose --env-file .env.database stop
 
 ### Flyway 与表结构
 
-`src/main/resources/db/migration/` 保留原 V1、V2；V2 将邮箱绑定升级为 EMAIL/PHONE，V3 在原表上增加 USERNAME。空数据库依次执行 V1 → V2 → V3；已有 V1 的数据库通过 V2 保留 AccountId、UserId、原始邮箱、规范化键及时间。应用启动自动迁移，已成功的迁移不重复执行；无 `schema.sql`、DDL Auto、自动 baseline 或 destructive clean。V2 重命名列，与新程序配套发布，不支持旧程序同时读写新 Schema。本次改造不执行开发数据库迁移。
+`src/main/resources/db/migration/` 保留原 V1、V2；V2 将邮箱绑定升级为 EMAIL/PHONE，V3 在原表上增加 USERNAME。新增 V4 管理 JDBC Session 表，V5 管理邮箱挑战及共享限流预算。空数据库依次执行 V1 → V2 → V3 → V4 → V5；已有 V1 的数据库通过 V2 保留 AccountId、UserId、原始邮箱、规范化键及时间。应用启动自动迁移，已成功的迁移不重复执行；无 `schema.sql`、DDL Auto、自动 baseline 或 destructive clean。V2 重命名列，与新程序配套发布，不支持旧程序同时读写新 Schema。本次改造不执行开发数据库迁移。
 
 可用数据库工具只读检查 `flyway_schema_history`，确认 version=1、2、3 均 success=true；集成测试同时执行 Flyway validate 和重复 migrate。时间使用 TIMESTAMPTZ，默认 CURRENT_TIMESTAMP；updated_at 的后续维护由写入方负责，不使用触发器。
 
@@ -117,7 +117,9 @@ Account 表保存 identity_type、original_identifier 和采用 C 比较规则�
 
 - `Application.java`：启动入口，使用根包默认组件扫描。
 - `bootstrap/`：应用启动日志。
-- `identity/domain/`：身份领域对象；`identity/persistence/`：身份持久化实现。
+- `identity/domain/`：身份领域对象；`identity/persistence/`：身份与验证码持久化实现。
+- `identity/application/`：邮箱认证事务与限流；`identity/web/`：认证 REST API。
+- `identity/security/`：Security、CSRF 和 Session；`identity/mail/`：SMTP 投递。
 - `shared/id/`：共享业务 ID 生成。
 - `shared/web/request/`：Request ID Filter 及 Servlet 分派注册。
 - `shared/web/error/`：公共错误定义、业务异常、固定错误响应、国际化消息解析及未知异常兜底。
@@ -132,7 +134,7 @@ Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名�
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含三个数据库 Row Record、三个原生 MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl 三个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含领域持久化 Row、原生 MyBatis Mapper、验证码挑战及限流 Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl 三个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 包含 UsernameIdentifier、EmailIdentifier、PhoneIdentifier，分别包装 Username、EmailAddress、PhoneNumber；User 的现有语义不变。
@@ -141,9 +143,9 @@ Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实�
 - PasswordCredentialRepository：`insert(PasswordCredential)` 只接受版本 0；`findByUserId(UserId)` 返回 Optional；`updateIfVersionMatches(UserId, expectedVersion, passwordHash, passwordInputVersion)` 返回 boolean，true 表示成功，false 统一表示凭据不存在或版本不匹配，不额外查询、不自动重试。更新不改变原不可变对象，需重新查询新状态。
 - PasswordCredentialRepositoryImpl 复用原 PasswordCredentialMapper 和 Row。Mapper 仍按 UserId 查询、以一条 SQL 比较预期版本、更新密码并递增版本；初始版本及审计时间由数据库提供。未修改 SQL、V1、V2 或事务边界。
 
-RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，本阶段不注册 Spring Bean。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
+RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，由认证配置显式装配 UserRepositoryImpl 和 AccountRepositoryImpl；密码 Repository 暂不参与认证。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
 
-调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 支持用户名、邮箱和手机号身份，后续应用层再按实际需要注册 RepositoryImpl。
+调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 支持用户名、邮箱和手机号身份，认证应用层负责注册／登录事务，Repository 不自行提交。
 
 ## 测试与格式化
 
@@ -174,4 +176,37 @@ RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器�
 - 集成测试找不到 Docker：启动 Docker Desktop 并检查当前 Docker context/权限；不能改为跳过测试。
 - 镜像下载失败：检查 registry 网络；未执行的数据库测试应标为 BLOCKED/NOT RUN。
 
-本阶段完成数据库基础及 Identity 基本持久化，不提供注册登录、邮件验证、密码重置、Spring Session JDBC、多租户、消息队列、任务调度、Collector HTTP Client 或商品业务接口。完成 I4-1B 后停止，不自动进入 I4-1C。
+当前仅实现邮箱验证码注册／登录，不实现用户名设置、密码设置、手机号绑定、密码重置、Web 页面或 Collector 集成。
+
+
+## 邮箱验证码认证
+
+所有接口位于 `/api/v1/auth`，响应禁止缓存，错误沿用 `{code,message}`。先 GET `/csrf`，保存 Cookie，再将响应的 `headerName` 和 `token` 用作后续 POST 的请求头。认证成功后 CSRF Token 失效，应重新获取。不要在日志中记录请求体、验证码、邮件正文或 SMTP 凭据，也不要打开邮件或 SQL 参数调试日志。
+
+| 方法与路径 | 请求／响应 |
+| --- | --- |
+| GET `/csrf` | `{headerName,token}` |
+| POST `/registration-codes` | `{email}` → 202 `{challengeId,expiresAt,retryAfterSeconds}` |
+| POST `/registrations` | `{challengeId,email,code}` → 204，自动登录 |
+| POST `/login-codes` | `{email}` → 同样的 202 响应 |
+| POST `/login` | `{challengeId,email,code}` → 204 |
+| GET `/me` | `{userId,status}`；匿名为 401 |
+| POST `/logout` | 204，销毁 Session；需要 CSRF |
+
+注册只创建 User 和 EMAIL Account，不创建 PasswordCredential。邮箱规范化复用 EmailAddress；登录邮件始终投递到已有 Account 保存的原始地址。注册、登录不自动合并用户；已登录时再次进入注册／登录返回 409。用途、邮箱和浏览器 Session 共同绑定挑战；验证码为六位数字，五分钟有效，成功后只能消费一次，最多五次错误尝试。未知、已注册或禁用等不适用的邮箱仍返回同形 202，不发送邮件。SMTP 投递失败同样保持通用响应并使挑战失效，客户端可在冷却后重新请求。
+
+注册数据及挑战消费在同一 PostgreSQL 事务中提交；随后轮换 Session ID、清理流程秘密并持久化认证上下文。Session 写入失败返回 503；已提交的用户不会回滚，此时应重新请求登录验证码。Session 通过 UserId 标识主体，空闲 30 分钟、绝对 12 小时过期；每次受保护请求检查用户启用状态。
+
+默认和生产 Cookie 为 `__Host-PIKDOSESSION`，Secure、HttpOnly、SameSite=Lax、Path=/，要求 HTTPS；dev 使用本机 HTTP 的 `PIKDOSESSION`。仅支持同源请求，不开放跨域认证。应用按直接连接的来源 IP 限流，不信任任意客户端转发头；反向代理部署须单独配置并验证可信代理与同源地址，不要直接信任公网 Forwarded 头。
+
+启动前配置以下环境变量：
+
+- `PIKDO_AUTH_HMAC_KEY`：至少 32 字节随机密钥的 Base64；所有实例共用，持久保存，禁止提交。更换后未完成挑战失效。
+- `PIKDO_AUTH_SMTP_HOST`、`PIKDO_AUTH_SMTP_PORT`（默认 587）、`PIKDO_AUTH_MAIL_FROM`。
+- `PIKDO_AUTH_SMTP_USERNAME`、`PIKDO_AUTH_SMTP_PASSWORD`：SMTP 认证需要时设置。
+
+生产 SMTP 强制 STARTTLS，dev 只允许 localhost／回环地址，默认端口 1025，须自行准备安全的本地邮件接收器。测试使用仅存在于 src/test 的内存发送器，不连接外部邮件服务。密钥无默认值；配置缺失时启动失败，不以明文或日志验证码降级。
+
+`pikdo.auth` 可配置 resend-interval（60s）、email-hourly-limit（5）、max-attempts（5）、send-ip-limit（10/分钟）、verify-ip-limit（30/分钟）、csrf-ip-limit（60/分钟）、absolute-session-lifetime（12h）。注册与登录共用邮箱发送预算，预算保存在 PostgreSQL 并发原子更新。错误验证提交失败次数；不会因抛出业务失败而回滚预算。每小时清理已过期预算及过期超过 24 小时的挑战；JDBC Session 使用 Spring Session 清理任务。
+
+`EmailAuthenticationIT` 使用 PostgreSQL Testcontainers 验证真实 Mapper、事务、并发冲突、Session Cookie、CSRF 和退出登录。不会访问开发数据库；V1–V3 保持原样。`pikdo.auth.enabled=false` 仅用于原有无数据库 Web 测试的隔离，认证端点消失，`/api/**` 仍保持访问控制。
