@@ -143,7 +143,7 @@ Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实�
 - PasswordCredentialRepository：`insert(PasswordCredential)` 只接受版本 0；`findByUserId(UserId)` 返回 Optional；`updateIfVersionMatches(UserId, expectedVersion, passwordHash, passwordInputVersion)` 返回 boolean，true 表示成功，false 统一表示凭据不存在或版本不匹配，不额外查询、不自动重试。更新不改变原不可变对象，需重新查询新状态。
 - PasswordCredentialRepositoryImpl 复用原 PasswordCredentialMapper 和 Row。Mapper 仍按 UserId 查询、以一条 SQL 比较预期版本、更新密码并递增版本；初始版本及审计时间由数据库提供。未修改 SQL、V1、V2 或事务边界。
 
-RepositoryImpl 是实现对应领域接口的普通 final 类，通过构造器接收 Mapper，由认证配置显式装配 UserRepositoryImpl 和 AccountRepositoryImpl；密码 Repository 暂不参与认证。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
+RepositoryImpl 实现对应领域接口并通过构造器接收 Mapper。UserRepositoryImpl、AccountRepositoryImpl 使用受认证开关控制的 `@Repository`，保留非 final 以支持 Spring 默认类代理；PasswordCredentialRepositoryImpl 仍为普通 final 类，暂不参与认证装配。查询缺失返回 Optional.empty；非法持久化状态、登录身份或密码凭据拒绝还原，约束异常继续传播，写入及 User 更新检查影响行数。User、Account、PasswordCredential 是三个独立领域对象，通过 UserId 关联；凭据领域对象及 Row 的字符串表示均不输出哈希。
 
 调用方负责 Spring 事务边界，RepositoryImpl 不手工提交，也不把基础读写当作完整注册或密码重置。只有创建/更新 SQL 能修改数据库，改变内存 User 状态不会自动保存。V1 原样保留，Account 通过 LoginIdentifier 支持用户名、邮箱和手机号身份，认证应用层负责注册／登录事务，Repository 不自行提交。
 
@@ -254,3 +254,19 @@ location / {
 该生产示例要求外部 Nginx 和 Spring Boot 后端均启用 HTTPS，后端证书须匹配配置的 `proxy_ssl_name`，按实际域名和 CA 文件替换示例值。这样保留现有同源 Origin 校验，无需信任客户端 X-Forwarded-Proto。纯 HTTP 的 dev 环境可以将 upstream 改为 `http://127.0.0.1:8080`；不要直接将生产 TLS 终止后转 HTTP 的部署套用此示例，否则现有同源检查可能拒绝请求。
 
 多级代理时，公网第一跳仍覆盖 XFF；后续受控代理使用 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` 逐跳追加，并保留 Host 和一致的 HTTPS Scheme。将实际链路中的代理 IP/CIDR 加入可信列表，以防火墙或监听地址限制后端只能由这些代理访问；不要信任任意公网来源、整个客户端网段或默认所有私网。若 Nginx 自身启用了 real_ip 模块，必须保证它同样只信任明确的上游代理，不能让公网输入直接改写 `$remote_addr`。
+
+
+### 认证代码职责
+
+| 层与组件 | 职责 |
+| --- | --- |
+| EmailAuthenticationController | 路由、`@Valid` 参数校验、状态码和 Web Service 委托 |
+| identity/web/dto | 独立请求／响应 record，验证请求保留脱敏 toString |
+| EmailAuthenticationWebService | 匿名检查、流程协调、邮箱转换、可信客户端 IP 获取和响应映射 |
+| AuthenticationSessionService | Session 流程秘密、CSRF Token、主体读取、Session ID 轮换与 SecurityContext 保存／失败清理 |
+| EmailAuthenticationService | 注册／登录核心事务，不依赖 Servlet 或 Web DTO |
+| AuthenticationRateLimiter、AsyncEmailDelivery | 现有共享限流与事务提交后异步邮件投递 |
+
+普通 Service／组件与 User、Account Repository 通过构造器注入和组件扫描装配，IdentityAuthenticationConfiguration 仅保留 Cookie、可替换 SMTP 实现及邮件线程池工厂。认证组件继续遵守 `pikdo.auth.enabled`；关闭时不装配数据库认证组件，但安全过滤链仍保留。
+
+Web 协调和 Session 服务不添加外层事务。核心业务与限流保留原 TransactionTemplate 传播语义，异步挑战读取与失败失效保留 REQUIRES_NEW；错误尝试计数提交、业务回滚及提交后调度不受注解装配影响。Session 流程属性键保持原字符串，重构前已发送的挑战仍可在同一浏览器中完成验证。退出仍由原 Security Filter 处理，API 与公开响应不变。

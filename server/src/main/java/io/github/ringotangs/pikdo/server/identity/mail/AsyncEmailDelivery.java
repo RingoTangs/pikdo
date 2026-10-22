@@ -6,6 +6,11 @@ import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -16,6 +21,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
 /** 有界后台投递；拒绝和失败不改变公开响应，也不记录任务参数或异常详情。 */
+@Component
+@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class AsyncEmailDelivery {
     private static final Logger log = LoggerFactory.getLogger(AsyncEmailDelivery.class);
     private final Executor executor;
@@ -25,15 +32,16 @@ public final class AsyncEmailDelivery {
     private final Clock clock;
 
     public AsyncEmailDelivery(
-            Executor executor,
+            @Qualifier("authenticationMailExecutor") Executor executor,
             EmailCodeSender sender,
             EmailChallengeMapper challenges,
-            TransactionTemplate transactions,
+            PlatformTransactionManager manager,
             Clock clock) {
         this.executor = executor;
         this.sender = sender;
         this.challenges = challenges;
-        this.transactions = transactions;
+        this.transactions = new TransactionTemplate(manager);
+        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
     }
 

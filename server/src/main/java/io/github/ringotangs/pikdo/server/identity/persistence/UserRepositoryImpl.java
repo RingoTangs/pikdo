@@ -5,11 +5,16 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Repository;
+
 import java.util.Objects;
 import java.util.Optional;
 
-/** 通过 UserMapper 持久化及还原用户。构造器手动装配，不自行提交事务或注册 Spring Bean。 */
-public final class UserRepositoryImpl implements UserRepository {
+/** 通过 UserMapper 持久化及还原用户。构造器注入 Mapper，事务由调用方负责。 */
+@Repository
+@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
+public class UserRepositoryImpl implements UserRepository {
     /** 构造器注入的 Mapper，不在此创建连接或接管事务。 */
     private final UserMapper mapper;
 

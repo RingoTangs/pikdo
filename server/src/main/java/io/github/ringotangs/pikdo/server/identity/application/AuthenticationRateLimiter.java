@@ -2,6 +2,9 @@ package io.github.ringotangs.pikdo.server.identity.application;
 
 import io.github.ringotangs.pikdo.server.identity.persistence.AuthenticationRateMapper;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
@@ -10,6 +13,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 /** 拒绝请求也提交已使用的来源预算，不因业务异常回滚限流。 */
+@Service
+@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class AuthenticationRateLimiter {
     private final AuthenticationRateMapper mapper;
     private final VerificationCodes codes;
@@ -21,12 +26,12 @@ public final class AuthenticationRateLimiter {
             AuthenticationRateMapper mapper,
             VerificationCodes codes,
             AuthenticationProperties properties,
-            TransactionTemplate transactions,
+            PlatformTransactionManager manager,
             Clock clock) {
         this.mapper = mapper;
         this.codes = codes;
         this.properties = properties;
-        this.transactions = transactions;
+        this.transactions = new TransactionTemplate(manager);
         this.clock = clock;
     }
 

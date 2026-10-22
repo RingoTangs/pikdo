@@ -30,4 +30,37 @@ class ApiSecurityTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN"));
     }
+
+    @Autowired org.springframework.context.ApplicationContext context;
+
+    @Test
+    void disabledAuthenticationDoesNotRegisterDedicatedComponentsOrEndpoints() throws Exception {
+        for (Class<?> type :
+                java.util.List.of(
+                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationController
+                                .class,
+                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService
+                                .class,
+                        io.github.ringotangs.pikdo.server.identity.security
+                                .AuthenticationSessionService.class,
+                        io.github.ringotangs.pikdo.server.identity.application
+                                .EmailAuthenticationService.class,
+                        io.github.ringotangs.pikdo.server.identity.application
+                                .AuthenticationRateLimiter.class,
+                        io.github.ringotangs.pikdo.server.identity.application.AuthenticationCleanup
+                                .class,
+                        io.github.ringotangs.pikdo.server.identity.application.VerificationCodes
+                                .class,
+                        io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery.class,
+                        io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender.class,
+                        io.github.ringotangs.pikdo.server.identity.domain.UserRepository.class,
+                        io.github.ringotangs.pikdo.server.identity.domain.AccountRepository.class,
+                        io.github.ringotangs.pikdo.server.identity.application
+                                .AuthenticationProperties.class))
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    context.getBeansOfType(type).isEmpty(), type.getSimpleName());
+        org.junit.jupiter.api.Assertions.assertFalse(
+                context.containsBean("authenticationMailExecutor"));
+        mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isNotFound());
+    }
 }

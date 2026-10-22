@@ -13,12 +13,17 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 import io.github.ringotangs.pikdo.server.identity.domain.Username;
 import io.github.ringotangs.pikdo.server.identity.domain.UsernameIdentifier;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Repository;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /** 通过 AccountMapper 持久化登录身份并重新执行领域校验。不把还原成功视为控制权验证；事务由调用方负责。 */
-public final class AccountRepositoryImpl implements AccountRepository {
+@Repository
+@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
+public class AccountRepositoryImpl implements AccountRepository {
     /** 构造器注入的 Mapper，不在此创建连接或接管事务。 */
     private final AccountMapper mapper;
 

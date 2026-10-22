@@ -452,8 +452,7 @@ class EmailAuthenticationIT {
                         limiter,
                         delivery,
                         properties,
-                        new org.springframework.transaction.support.TransactionTemplate(
-                                transactions),
+                        transactions,
                         clock);
         assertThrows(
                 org.springframework.dao.DataIntegrityViolationException.class,
@@ -671,8 +670,7 @@ class EmailAuthenticationIT {
                             limiter,
                             newDelivery(failing),
                             properties,
-                            new org.springframework.transaction.support.TransactionTemplate(
-                                    transactions),
+                            transactions,
                             clock);
             var issued =
                     failingService.send(
@@ -700,11 +698,8 @@ class EmailAuthenticationIT {
 
     private io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery newDelivery(
             io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender sender) {
-        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
-        tx.setPropagationBehavior(
-                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery(
-                mailExecutor, sender, challenges, tx, clock);
+                mailExecutor, sender, challenges, transactions, clock);
     }
 
     @Test
@@ -952,5 +947,29 @@ class EmailAuthenticationIT {
                             scope,
                             verificationCodes.digest("rate", scope, "192.0.2.8")));
         }
+    }
+
+    @Autowired org.springframework.context.ApplicationContext context;
+
+    @Test
+    void scannedServicesAndRepositoriesAreUniqueAndRepositoriesSupportSpringProxies() {
+        for (Class<?> type :
+                List.of(
+                        EmailAuthenticationService.class,
+                        AuthenticationRateLimiter.class,
+                        AuthenticationCleanup.class,
+                        VerificationCodes.class,
+                        io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationWebService
+                                .class,
+                        io.github.ringotangs.pikdo.server.identity.security
+                                .AuthenticationSessionService.class,
+                        io.github.ringotangs.pikdo.server.identity.mail.AsyncEmailDelivery.class,
+                        UserRepository.class,
+                        AccountRepository.class))
+            assertEquals(1, context.getBeansOfType(type).size(), type.getSimpleName());
+        assertTrue(org.springframework.aop.support.AopUtils.isAopProxy(users));
+        assertTrue(org.springframework.aop.support.AopUtils.isAopProxy(accounts));
+        assertFalse(context.containsBean("authenticationUsers"));
+        assertFalse(context.containsBean("authenticationAccounts"));
     }
 }

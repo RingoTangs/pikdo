@@ -6,7 +6,10 @@ import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapp
 import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
@@ -17,6 +20,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /** 邮箱认证用例：数据库提交与 HTTP Session 建立分离，不合并不同流程的 User。 */
+@Service
+@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class EmailAuthenticationService {
     private final UserRepository users;
     private final AccountRepository accounts;
@@ -38,7 +43,7 @@ public final class EmailAuthenticationService {
             AuthenticationRateLimiter rates,
             AsyncEmailDelivery delivery,
             AuthenticationProperties properties,
-            TransactionTemplate transactions,
+            PlatformTransactionManager manager,
             Clock clock) {
         this.users = users;
         this.accounts = accounts;
@@ -47,7 +52,7 @@ public final class EmailAuthenticationService {
         this.rates = rates;
         this.delivery = delivery;
         this.properties = properties;
-        this.transactions = transactions;
+        this.transactions = new TransactionTemplate(manager);
         this.clock = clock;
     }
 

@@ -21,13 +21,12 @@ class AsyncEmailDeliveryTest {
     final EmailCodeSender sender = mock(EmailCodeSender.class);
     final Clock clock = Clock.fixed(Instant.parse("2026-10-22T00:00:00Z"), ZoneOffset.UTC);
     final List<Runnable> queue = new ArrayList<>();
-    TransactionTemplate transactions;
+    PlatformTransactionManager manager;
 
     @BeforeEach
     void setup() {
-        var manager = mock(PlatformTransactionManager.class);
+        manager = mock(PlatformTransactionManager.class);
         when(manager.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus());
-        transactions = new TransactionTemplate(manager);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -59,7 +58,7 @@ class AsyncEmailDeliveryTest {
     }
 
     AsyncEmailDelivery delivery(Executor executor) {
-        return new AsyncEmailDelivery(executor, sender, challenges, transactions, clock);
+        return new AsyncEmailDelivery(executor, sender, challenges, manager, clock);
     }
 
     void commit() {
@@ -185,5 +184,20 @@ class AsyncEmailDeliveryTest {
             logger.detachAppender(logs);
             logs.stop();
         }
+    }
+
+    @Test
+    void backgroundReadsKeepRequiresNewPropagation() {
+        var row = row(true);
+        when(challenges.lockById(row.id())).thenReturn(Optional.of(row));
+        delivery(queue::add).afterCommit(row, CodePurpose.REGISTER, "123456");
+        commit();
+        queue.getFirst().run();
+        verify(manager)
+                .getTransaction(
+                        argThat(
+                                definition ->
+                                        definition.getPropagationBehavior()
+                                                == TransactionDefinition.PROPAGATION_REQUIRES_NEW));
     }
 }
