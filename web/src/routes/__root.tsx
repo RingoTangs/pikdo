@@ -23,7 +23,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           content: 'width=device-width, initial-scale=1',
         },
         {
-          title: 'TanStack Start Starter',
+          title: 'Pikdo',
+        },
+        {
+          name: 'description',
+          content: 'Pikdo 数据采集与分析平台',
         },
       ],
       links: [
@@ -39,7 +43,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         {/* eslint-disable-next-line react-dom/no-dangerously-set-innerhtml -- Static bootstrap script with safely serialized configuration. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

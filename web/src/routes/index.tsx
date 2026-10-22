@@ -1,73 +1,36 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { useCurrentUser } from '@/features/auth/queries'
 import { Button } from '@/shadcn/components/ui/button'
 
 export const Route = createFileRoute('/')({ component: Home })
 
 function Home() {
-  const [count, setCount] = useState(0)
+  const currentUser = useCurrentUser()
 
   return (
     <main className="bg-background text-foreground flex min-h-svh items-center justify-center px-6 py-12">
-      <div className="w-full max-w-xl space-y-8 text-center">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          Welcome to TanStack Start
-        </h1>
-
-        <section
-          aria-labelledby="counter-heading"
-          className="bg-card text-card-foreground border-border rounded-2xl border p-8 shadow-sm"
-        >
-          <h2
-            id="counter-heading"
-            className="text-muted-foreground text-sm font-medium"
-          >
-            计数器
-          </h2>
-          <p
-            aria-live="polite"
-            aria-atomic="true"
-            className="my-8 text-7xl font-semibold tabular-nums"
-          >
-            <span className="sr-only">当前计数：</span>
-            {count}
-          </p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => setCount((value) => value - 1)}
-            >
-              减一
-            </Button>
-            <Button variant="secondary" size="lg" onClick={() => setCount(0)}>
-              重置
-            </Button>
-            <Button size="lg" onClick={() => setCount((value) => value + 1)}>
-              加一
-            </Button>
-          </div>
+      <div className="w-full max-w-xl space-y-6 text-center">
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Pikdo</h1>
+        <p className="text-muted-foreground">
+          数据采集与分析工作台，正在准备中。
+        </p>
+        <section aria-label="登录状态" aria-live="polite" className="space-y-3">
+          {currentUser.isPending ? (
+            <p role="status">正在确认登录状态…</p>
+          ) : currentUser.isError ? (
+            <>
+              <p role="alert">暂时无法获取登录状态，请稍后重试。</p>
+              <Button
+                variant="outline"
+                onClick={() => void currentUser.refetch()}
+              >
+                重试
+              </Button>
+            </>
+          ) : (
+            <p>{currentUser.data ? '已登录' : '未登录'}</p>
+          )}
         </section>
-
-        <nav
-          aria-label="页面示例"
-          className="flex flex-col items-center gap-4 text-sm"
-        >
-          <Link
-            to="/streaming"
-            preload={false}
-            className="text-primary underline underline-offset-4"
-          >
-            查看 Streaming SSR 示例 →
-          </Link>
-          <Link
-            to="/pending"
-            preload={false}
-            className="text-primary underline underline-offset-4"
-          >
-            查看全局 Pending 示例 →
-          </Link>
-        </nav>
       </div>
     </main>
   )

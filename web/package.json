@@ -1,18 +1,18 @@
 {
-  "name": "tanstack-start-app",
+  "name": "pikdo-web",
   "type": "module",
   "private": true,
   "packageManager": "pnpm@10.24.0",
-  "description": "A TanStack Start starter with React, TypeScript, TanStack Query, Tailwind CSS, and streaming SSR.",
+  "description": "Pikdo Web：数据采集与分析平台。",
   "author": "RingoTangs",
   "license": "MIT",
-  "homepage": "https://github.com/RingoTangs/tanstack-start-app#readme",
+  "homepage": "https://github.com/RingoTangs/pikdo#readme",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/RingoTangs/tanstack-start-app.git"
+    "url": "git+ssh://git@github.com/RingoTangs/pikdo.git"
   },
   "bugs": {
-    "url": "https://github.com/RingoTangs/tanstack-start-app/issues"
+    "url": "https://github.com/RingoTangs/pikdo/issues"
   },
   "keywords": [
     "tanstack-start",
@@ -22,9 +22,7 @@
     "typescript",
     "vite",
     "tailwindcss",
-    "ssr",
-    "streaming",
-    "starter"
+    "ssr"
   ],
   "scripts": {
     "dev": "vite dev",

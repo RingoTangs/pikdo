@@ -1,80 +1,92 @@
 // @vitest-environment jsdom
 
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { getCurrentUser } from '@/features/auth/api'
+import { ApiError } from '@/lib/api-client'
 import { getRouter } from './router'
 
-// Exercise the actual router defaults and page routes without the SSR document shell.
 vi.mock('@/routes/__root', async () => {
   const { createRootRoute } = await import('@tanstack/react-router')
   return { Route: createRootRoute() }
 })
+vi.mock('@/features/auth/api', () => ({ getCurrentUser: vi.fn() }))
+
+const routers: ReturnType<typeof getRouter>[] = []
+
+beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+})
 
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
+  routers.forEach((router) => router.options.context.queryClient.clear())
+  routers.length = 0
   vi.restoreAllMocks()
+  vi.resetAllMocks()
 })
 
-it('客户端导航使用全局 Pending，完成后显示结果，离开后再次进入仍显示 Pending', async () => {
-  vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+async function show(path = '/') {
   const router = getRouter()
+  routers.push(router)
   router.update({
     context: router.options.context,
-    history: createMemoryHistory({ initialEntries: ['/'] }),
+    history: createMemoryHistory({ initialEntries: [path] }),
     scrollRestoration: false,
   })
   await router.load()
   render(<RouterProvider router={router} />)
-  expect(
-    screen.getByRole('heading', { name: 'Welcome to TanStack Start' }),
-  ).toBeInTheDocument()
+  return router
+}
 
-  vi.useFakeTimers()
-  try {
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('link', { name: '查看全局 Pending 示例 →' }),
-      )
-    })
-    await act(async () => vi.advanceTimersByTimeAsync(149))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: 'Welcome to TanStack Start' }),
-    ).toBeInTheDocument()
-
-    await act(async () => vi.advanceTimersByTimeAsync(1))
-    expect(screen.getByRole('status')).toHaveTextContent('Loading...')
-    expect(
-      screen.queryByRole('heading', { name: '加载完成' }),
-    ).not.toBeInTheDocument()
-
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
-    expect(
-      screen.getByRole('heading', { name: '加载完成' }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('link', { name: '← 返回首页' }))
-    })
-    expect(
-      screen.getByRole('heading', { name: 'Welcome to TanStack Start' }),
-    ).toBeInTheDocument()
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('link', { name: '查看全局 Pending 示例 →' }),
-      )
-    })
-    await act(async () => vi.advanceTimersByTimeAsync(150))
-    expect(screen.getByRole('status')).toHaveTextContent('Loading...')
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
-    expect(
-      screen.getByRole('heading', { name: '加载完成' }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-  } finally {
-    router.options.context.queryClient.clear()
-  }
+it('shows Pikdo with loading and anonymous states, without starter content', async () => {
+  let finish: ((value: null) => void) | undefined
+  vi.mocked(getCurrentUser).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  await show()
+  expect(screen.getByRole('heading', { name: 'Pikdo' })).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('正在确认登录状态')
+  finish?.(null)
+  expect(await screen.findByText('未登录')).toBeInTheDocument()
+  expect(screen.queryByText('计数器')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
 })
+
+it('shows authenticated state', async () => {
+  vi.mocked(getCurrentUser).mockResolvedValue({
+    userId: 'user',
+    status: 'ACTIVE',
+  })
+  await show()
+  expect(await screen.findByText('已登录')).toBeInTheDocument()
+})
+
+it('shows failure instead of anonymous and supports retry', async () => {
+  vi.mocked(getCurrentUser)
+    .mockRejectedValueOnce(new ApiError('http', '服务不可用', 503))
+    .mockResolvedValue(null)
+  await show()
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    '暂时无法获取登录状态',
+  )
+  expect(screen.queryByText('未登录')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '重试' }))
+  expect(await screen.findByText('未登录')).toBeInTheDocument()
+  expect(getCurrentUser).toHaveBeenCalledTimes(2)
+})
+
+it.each(['/pending', '/streaming'])(
+  'renders 404 for removed %s demo',
+  async (path) => {
+    await show(path)
+    expect(
+      await screen.findByRole('heading', { name: '404' }),
+    ).toBeInTheDocument()
+    expect(getCurrentUser).not.toHaveBeenCalled()
+  },
+)
