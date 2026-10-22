@@ -7,7 +7,7 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 行锁串行化挑战消费；失败计数与成功消费均由调用方事务提交。 */
+// 行锁串行化消费，失败次数也必须提交。
 @Mapper
 public interface EmailChallengeMapper {
     @Insert(

@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Locale;
 
-/** 认证失败不输出底层异常、邮箱、验证码或数据库信息。 */
 @Order(-1)
 @RestControllerAdvice(assignableTypes = EmailAuthenticationController.class)
 public final class AuthenticationExceptionHandler {

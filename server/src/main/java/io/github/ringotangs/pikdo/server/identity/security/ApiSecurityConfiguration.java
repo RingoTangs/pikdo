@@ -44,7 +44,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
-/** API 使用 Cookie Session；公开健康检查和不存在的非 API 路由保留原行为。 */
 @Configuration(proxyBeanMethods = false)
 public class ApiSecurityConfiguration {
     @Bean

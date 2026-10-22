@@ -23,7 +23,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /** 真实 MVC 参数绑定及校验；协调服务替身不会访问数据库或建立真实认证。 */
-@WebMvcTest(value = EmailAuthenticationController.class, properties = "pikdo.auth.enabled=true")
+@WebMvcTest(EmailAuthenticationController.class)
 @Import({ApiSecurityConfiguration.class, ErrorMessageResolver.class})
 class EmailAuthenticationControllerTest {
     @Autowired MockMvc mvc;

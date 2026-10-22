@@ -953,6 +953,8 @@ class EmailAuthenticationIT {
 
     @Test
     void scannedServicesAndRepositoriesAreUniqueAndRepositoriesSupportSpringProxies() {
+        assertFalse(org.mockito.Mockito.mockingDetails(service).isMock());
+        assertFalse(org.mockito.Mockito.mockingDetails(limiter).isMock());
         for (Class<?> type :
                 List.of(
                         EmailAuthenticationService.class,

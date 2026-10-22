@@ -4,7 +4,6 @@ import io.github.ringotangs.pikdo.server.shared.web.error.ErrorCode;
 
 import org.springframework.http.HttpStatus;
 
-/** 对外只公开通用失败，不区分邮箱不存在、禁用、错误验证码或挑战状态。 */
 public enum AuthenticationError implements ErrorCode {
     VERIFICATION_FAILED(
             "IDENTITY_VERIFICATION_FAILED",

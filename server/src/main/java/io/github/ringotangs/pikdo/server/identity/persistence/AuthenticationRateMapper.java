@@ -5,7 +5,7 @@ import org.apache.ibatis.annotations.*;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 
-/** PostgreSQL 原子预算，冷却时间独立于小时窗口，避免边界连续发码。 */
+// 冷却时间独立于小时预算，避免窗口边界连续发码。
 @Mapper
 public interface AuthenticationRateMapper {
     @Select(

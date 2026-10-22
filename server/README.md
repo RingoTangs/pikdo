@@ -156,7 +156,7 @@ RepositoryImpl 实现对应领域接口并通过构造器接收 Mapper。UserRep
 ./mvnw clean verify
 ```
 
-`clean verify` 执行环境检查、普通测试、JAR 打包和 Spotless 检查，**不需要 Docker 或数据库服务**。完整 SpringBootTest 通过测试专用 WithoutDatabase 注解排除数据库自动配置，保留原默认/dev/prod Profile 和 Web 断言；正式应用没有该排除。测试覆盖异常状态与 JSON、参数校验、中英文消息、Request ID/MDC、测试组件隔离、Swagger 环境隔离和健康检查。
+`clean verify` 执行环境检查、普通测试、JAR 打包和 Spotless 检查，**不需要 Docker 或数据库服务**。完整 SpringBootTest 通过测试专用 WithoutDatabase 注解排除数据库自动配置，并用 Mockito 替换认证 Mapper、事务管理器、邮件发送器和限流器，提供测试专用 HMAC 密钥；真实 Controller、协调服务、Session 服务和安全过滤链仍装配。保留原默认/dev/prod Profile 和 Web 断言；正式应用没有这些排除或替身。测试覆盖异常状态与 JSON、参数校验、中英文消息、Request ID/MDC、测试组件隔离、Swagger 环境隔离和健康检查。
 
 ### PostgreSQL 集成测试
 
@@ -209,7 +209,7 @@ RepositoryImpl 实现对应领域接口并通过构造器接收 Mapper。UserRep
 
 `pikdo.auth` 可配置 resend-interval（60s）、email-hourly-limit（5）、max-attempts（5）、send-ip-limit（10/分钟）、verify-ip-limit（30/分钟）、csrf-ip-limit（60/分钟）、absolute-session-lifetime（12h）。注册与登录共用邮箱发送预算，预算保存在 PostgreSQL 并发原子更新。错误验证提交失败次数；不会因抛出业务失败而回滚预算。每小时清理已过期预算及过期超过 24 小时的挑战；JDBC Session 使用 Spring Session 清理任务。
 
-`EmailAuthenticationIT` 使用 PostgreSQL Testcontainers 验证真实 Mapper、事务、并发冲突、Session Cookie、CSRF 和退出登录。不会访问开发数据库；V1–V3 保持原样。`pikdo.auth.enabled=false` 仅用于原有无数据库 Web 测试的隔离，认证端点消失，`/api/**` 仍保持访问控制。
+`EmailAuthenticationIT` 使用 PostgreSQL Testcontainers 验证真实 Mapper、事务、并发冲突、Session Cookie、CSRF 和退出登录。不会访问开发数据库；V1–V3 保持原样。认证始终启用；无数据库 Web 测试仅替换基础设施和限流组件，真实业务、限流与事务由 PostgreSQL 集成测试验证。
 
 
 ### 异步邮件与有界队列
@@ -267,6 +267,15 @@ location / {
 | EmailAuthenticationService | 注册／登录核心事务，不依赖 Servlet 或 Web DTO |
 | AuthenticationRateLimiter、AsyncEmailDelivery | 现有共享限流与事务提交后异步邮件投递 |
 
-普通 Service／组件与 User、Account Repository 通过构造器注入和组件扫描装配，IdentityAuthenticationConfiguration 仅保留 Cookie、可替换 SMTP 实现及邮件线程池工厂。认证组件继续遵守 `pikdo.auth.enabled`；关闭时不装配数据库认证组件，但安全过滤链仍保留。
+普通 Service／组件与 User、Account Repository 通过构造器注入和组件扫描装配，IdentityAuthenticationConfiguration 仅保留 Cookie、可替换 SMTP 实现及邮件线程池工厂。认证组件始终注册，不使用功能开关或额外 Profile 禁用生产认证。
 
 Web 协调和 Session 服务不添加外层事务。核心业务与限流保留原 TransactionTemplate 传播语义，异步挑战读取与失败失效保留 REQUIRES_NEW；错误尝试计数提交、业务回滚及提交后调度不受注解装配影响。Session 流程属性键保持原字符串，重构前已发送的挑战仍可在同一浏览器中完成验证。退出仍由原 Security Filter 处理，API 与公开响应不变。
+
+
+### Swagger 认证文档
+
+仅 dev 开放 Swagger UI 和 `/v3/api-docs`；默认及 prod 继续关闭。邮箱认证分组描述获取 CSRF Token、发送／验证注册与登录验证码、查询当前用户，并明确成功状态、统一错误响应及 POST 所需的 `X-CSRF-TOKEN`。
+
+先通过 CSRF 接口获取 Token 并保留浏览器 Cookie；注册或登录成功、退出后重新获取 Token。当前用户接口使用 HttpOnly Cookie Session，不使用 Bearer/JWT。文档不提供验证码或 Session Cookie 的敏感示例。发送请求返回 202 不代表账号存在或邮件投递成功。
+
+退出登录通过 OpenAPI 配置展示真实的 `POST /api/v1/auth/logout`，仍由 Security LogoutFilter 执行，不创建 MVC Controller 路由；需要有效 CSRF，无请求体，成功返回 204。无数据库 Swagger 测试用于文档和安全过滤链校验，实际注册登录须使用正常数据库及 SMTP 配置。

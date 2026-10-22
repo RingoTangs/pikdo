@@ -11,7 +11,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
-/** Security Filter 的失败也沿用统一 JSON 和 Locale，不重定向或输出异常详情。 */
 public final class SecurityJson {
     private final ErrorMessageResolver messages;
     private final ObjectMapper json;

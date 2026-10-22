@@ -8,7 +8,6 @@ import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 import java.util.Set;
 
-/** SMTP 仅在事务提交后调用，不记录正文、原始邮件异常或认证信息。 */
 public final class SmtpEmailCodeSender implements EmailCodeSender {
     private final JavaMailSenderImpl sender = new JavaMailSenderImpl();
     private final String from;

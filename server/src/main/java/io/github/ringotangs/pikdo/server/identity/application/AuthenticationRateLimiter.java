@@ -2,7 +2,6 @@ package io.github.ringotangs.pikdo.server.identity.application;
 
 import io.github.ringotangs.pikdo.server.identity.persistence.AuthenticationRateMapper;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -12,9 +11,8 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
-/** 拒绝请求也提交已使用的来源预算，不因业务异常回滚限流。 */
+// 拒绝结果在事务外抛出，避免回滚已使用的预算。
 @Service
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class AuthenticationRateLimiter {
     private final AuthenticationRateMapper mapper;
     private final VerificationCodes codes;
@@ -81,7 +79,7 @@ public final class AuthenticationRateLimiter {
                                                 Duration.ZERO))));
     }
 
-    /** HTTP 入口预算覆盖格式错误和未通过 CSRF 的请求。 */
+    // 入口预算也覆盖格式错误和未通过 CSRF 的请求。
     public void request(String source, boolean sending) {
         require(
                 Boolean.TRUE.equals(

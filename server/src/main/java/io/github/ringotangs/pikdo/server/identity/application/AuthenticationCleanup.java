@@ -2,15 +2,12 @@ package io.github.ringotangs.pikdo.server.identity.application;
 
 import io.github.ringotangs.pikdo.server.identity.persistence.*;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.*;
 
-/** 清理已过保留期的挑战及限流预算，不接管业务事务。 */
 @Component
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class AuthenticationCleanup {
     private final EmailChallengeMapper challenges;
     private final AuthenticationRateMapper rates;

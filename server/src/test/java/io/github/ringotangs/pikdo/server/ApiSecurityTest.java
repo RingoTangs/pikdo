@@ -34,7 +34,7 @@ class ApiSecurityTest {
     @Autowired org.springframework.context.ApplicationContext context;
 
     @Test
-    void disabledAuthenticationDoesNotRegisterDedicatedComponentsOrEndpoints() throws Exception {
+    void authenticationComponentsRemainRegisteredWithoutDatabase() throws Exception {
         for (Class<?> type :
                 java.util.List.of(
                         io.github.ringotangs.pikdo.server.identity.web.EmailAuthenticationController
@@ -58,9 +58,9 @@ class ApiSecurityTest {
                         io.github.ringotangs.pikdo.server.identity.application
                                 .AuthenticationProperties.class))
             org.junit.jupiter.api.Assertions.assertTrue(
-                    context.getBeansOfType(type).isEmpty(), type.getSimpleName());
-        org.junit.jupiter.api.Assertions.assertFalse(
+                    context.getBeansOfType(type).size() == 1, type.getSimpleName());
+        org.junit.jupiter.api.Assertions.assertTrue(
                 context.containsBean("authenticationMailExecutor"));
-        mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk());
     }
 }

@@ -1,7 +1,6 @@
 package io.github.ringotangs.pikdo.server.identity.application;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.ByteBuffer;
@@ -14,9 +13,7 @@ import java.util.Locale;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-/** 明文验证码仅短暂存在于内存；用途、流程、挑战和邮箱共同纳入带密钥摘要。 */
 @Component
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class VerificationCodes {
     private final SecretKeySpec key;
     private final SecureRandom random = new SecureRandom();

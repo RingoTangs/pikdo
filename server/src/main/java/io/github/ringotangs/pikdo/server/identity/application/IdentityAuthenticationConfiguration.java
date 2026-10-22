@@ -4,7 +4,6 @@ import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
 import io.github.ringotangs.pikdo.server.identity.mail.SmtpEmailCodeSender;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,9 +14,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.ThreadPoolExecutor;
 
-/** 认证基础设施配置：Cookie、SMTP 实现选择及有界邮件线程池。 */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(AuthenticationProperties.class)
 @EnableScheduling
 public class IdentityAuthenticationConfiguration {

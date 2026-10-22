@@ -5,7 +5,7 @@ import org.jspecify.annotations.Nullable;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-/** 挑战只存摘要；登录归属是发码时的快照，消费时仍须重新核对。 */
+// 挑战只存摘要；登录归属为发码快照，消费时必须重新核对。
 public record EmailChallengeRow(
         UUID id,
         String purpose,

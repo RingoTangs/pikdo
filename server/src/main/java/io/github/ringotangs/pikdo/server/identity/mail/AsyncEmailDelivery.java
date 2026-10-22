@@ -7,7 +7,6 @@ import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -20,9 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
-/** 有界后台投递；拒绝和失败不改变公开响应，也不记录任务参数或异常详情。 */
 @Component
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class AsyncEmailDelivery {
     private static final Logger log = LoggerFactory.getLogger(AsyncEmailDelivery.class);
     private final Executor executor;
@@ -45,7 +42,6 @@ public final class AsyncEmailDelivery {
         this.clock = clock;
     }
 
-    /** 必须在挑战事务内登记；无论是否具备投递资格均登记相同的提交后任务。 */
     public void afterCommit(EmailChallengeRow row, CodePurpose purpose, String code) {
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {

@@ -1,6 +1,5 @@
 package io.github.ringotangs.pikdo.server.identity.application;
 
-/** 不携带邮箱、验证码、摘要或底层异常文本的应用失败。 */
 public final class AuthenticationFailure extends RuntimeException {
     public enum Reason {
         INVALID,

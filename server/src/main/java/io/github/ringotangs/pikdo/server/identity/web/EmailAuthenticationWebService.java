@@ -8,12 +8,9 @@ import io.github.ringotangs.pikdo.server.shared.web.request.ClientIpResolver;
 
 import jakarta.servlet.http.*;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
-/** Web 用例协调；核心事务返回后才建立登录 Session，不开启外层事务。 */
 @Service
-@ConditionalOnProperty(name = "pikdo.auth.enabled", havingValue = "true", matchIfMissing = true)
 public final class EmailAuthenticationWebService {
     private final EmailAuthenticationService service;
     private final AuthenticationSessionService sessions;
@@ -88,6 +85,7 @@ public final class EmailAuthenticationWebService {
                         body.code(),
                         flow,
                         clientIps.resolve(request));
+        // 核心事务已经提交，Session 保存失败不能回滚已创建的用户。
         sessions.establish(user, request, response);
     }
 }

@@ -5,7 +5,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.time.Duration;
 
-/** 所有限制均为共享数据库预算；生产密钥没有默认值。 */
 @ConfigurationProperties("pikdo.auth")
 public record AuthenticationProperties(
         @DefaultValue("") String hmacKey,

@@ -4,7 +4,6 @@ import jakarta.validation.constraints.*;
 
 import java.util.UUID;
 
-/** 邮箱认证 HTTP 数据契约。 */
 public record VerificationRequest(
         @NotNull UUID challengeId,
         @NotBlank @Size(max = 254) String email,
