@@ -12,6 +12,8 @@ import jakarta.servlet.FilterChain;
 
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -149,13 +151,62 @@ class ApiRequestProtectionFilterTest {
         verifyNoInteractions(chain);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "INVALID, 401, IDENTITY_VERIFICATION_FAILED",
+        "RATE_LIMITED, 429, IDENTITY_RATE_LIMITED",
+        "UNAVAILABLE, 503, IDENTITY_UNAVAILABLE",
+        "ALREADY_AUTHENTICATED, 409, IDENTITY_ALREADY_AUTHENTICATED"
+    })
+    void downstreamAuthenticationFailureKeepsOriginalMapping(
+            AuthenticationFailure.Reason reason, int status, String code) throws Exception {
+        doThrow(new AuthenticationFailure(reason)).when(chain).doFilter(request, response);
+        filter.doFilter(request, response, chain);
+        assertError(status, code);
+    }
+
+    @ParameterizedTest
+    @EnumSource(AuthenticationFailure.Reason.class)
+    void committedResponseIsNotRewrittenForAuthenticationFailures(
+            AuthenticationFailure.Reason reason) throws Exception {
+        assertCommittedResponsePreserved(new AuthenticationFailure(reason));
+    }
+
     @Test
-    void downstreamAuthenticationFailureKeepsOriginalMapping() throws Exception {
-        doThrow(new AuthenticationFailure(AuthenticationFailure.Reason.INVALID))
+    void committedResponseIsNotRewrittenForDatabaseFailure() throws Exception {
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        UsernamePasswordAuthenticationToken.authenticated("user", null, List.of()));
+        assertCommittedResponsePreserved(new DataAccessResourceFailureException("secret"));
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    void assertCommittedResponsePreserved(RuntimeException failure) throws Exception {
+        doAnswer(
+                        invocation -> {
+                            response.setStatus(202);
+                            response.getWriter().write("original-response");
+                            response.flushBuffer();
+                            throw failure;
+                        })
                 .when(chain)
                 .doFilter(request, response);
         filter.doFilter(request, response, chain);
-        assertError(429, "IDENTITY_RATE_LIMITED");
+        assertTrue(response.isCommitted());
+        assertEquals(202, response.getStatus());
+        assertEquals("original-response", response.getContentAsString());
+    }
+
+    @Test
+    void limiterUnavailableFailureIsNotReportedAsRateLimited() throws Exception {
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/auth/login");
+        doThrow(new AuthenticationFailure(AuthenticationFailure.Reason.UNAVAILABLE))
+                .when(rates)
+                .request(anyString(), eq(false));
+        filter.doFilter(request, response, chain);
+        assertError(503, "IDENTITY_UNAVAILABLE");
+        verifyNoInteractions(chain);
     }
 
     @Test

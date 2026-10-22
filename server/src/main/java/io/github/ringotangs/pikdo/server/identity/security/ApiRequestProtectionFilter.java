@@ -45,9 +45,18 @@ public final class ApiRequestProtectionFilter extends OncePerRequestFilter {
                 else if (path.endsWith("/registrations") || path.endsWith("/login"))
                     rates.request(clientIps.resolve(req), false);
             }
+        } catch (AuthenticationFailure failure) {
+            json.write(req, res, AuthenticationError.fromReason(failure.reason()));
+            return;
+        } catch (DataAccessException failure) {
+            SecurityContextHolder.clearContext();
+            json.write(req, res, AuthenticationError.UNAVAILABLE);
+            return;
+        }
+        try {
             chain.doFilter(req, res);
         } catch (AuthenticationFailure failure) {
-            json.write(req, res, AuthenticationError.RATE_LIMITED);
+            json.write(req, res, AuthenticationError.fromReason(failure.reason()));
         } catch (DataAccessException failure) {
             SecurityContextHolder.clearContext();
             json.write(req, res, AuthenticationError.UNAVAILABLE);

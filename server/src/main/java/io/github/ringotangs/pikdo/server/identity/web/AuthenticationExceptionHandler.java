@@ -22,14 +22,7 @@ public final class AuthenticationExceptionHandler {
     @ExceptionHandler(AuthenticationFailure.class)
     public ResponseEntity<ErrorResponse> authentication(
             AuthenticationFailure failure, Locale locale) {
-        var error =
-                switch (failure.reason()) {
-                    case INVALID -> AuthenticationError.VERIFICATION_FAILED;
-                    case RATE_LIMITED -> AuthenticationError.RATE_LIMITED;
-                    case UNAVAILABLE -> AuthenticationError.UNAVAILABLE;
-                    case ALREADY_AUTHENTICATED -> AuthenticationError.ALREADY_AUTHENTICATED;
-                };
-        return response(error, locale);
+        return response(AuthenticationError.fromReason(failure.reason()), locale);
     }
 
     @ExceptionHandler(DataAccessException.class)

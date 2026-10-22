@@ -1,11 +1,13 @@
 package io.github.ringotangs.pikdo.server.identity.web;
 
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationFailure;
 import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
 import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
 import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
@@ -14,6 +16,8 @@ import io.github.ringotangs.pikdo.server.identity.web.dto.*;
 import io.github.ringotangs.pikdo.server.shared.web.error.ErrorMessageResolver;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -107,6 +111,31 @@ class EmailAuthenticationControllerTest {
                                         "{\"userId\":\"user-id\",\"status\":\"ACTIVE\"}",
                                         JsonCompareMode.STRICT));
         verify(service).me();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "INVALID, 401, IDENTITY_VERIFICATION_FAILED",
+        "RATE_LIMITED, 429, IDENTITY_RATE_LIMITED",
+        "UNAVAILABLE, 503, IDENTITY_UNAVAILABLE",
+        "ALREADY_AUTHENTICATED, 409, IDENTITY_ALREADY_AUTHENTICATED"
+    })
+    void authenticationFailuresKeepAdviceMapping(
+            AuthenticationFailure.Reason reason, int status, String code) throws Exception {
+        doThrow(new AuthenticationFailure(reason)).when(service).login(any(), any(), any());
+        mvc.perform(
+                        post("/api/v1/auth/login")
+                                .with(csrf())
+                                .contentType("application/json")
+                                .content(
+                                        "{\"challengeId\":\""
+                                                + UUID.randomUUID()
+                                                + "\",\"email\":\"a@example.com\",\"code\":\"123456\"}"))
+                .andExpect(status().is(status))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.code").value(code))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$").value(aMapWithSize(2)));
     }
 
     @Test

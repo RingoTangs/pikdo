@@ -1,5 +1,6 @@
 package io.github.ringotangs.pikdo.server.identity.web;
 
+import io.github.ringotangs.pikdo.server.identity.application.AuthenticationFailure;
 import io.github.ringotangs.pikdo.server.shared.web.error.ErrorCode;
 
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,15 @@ public enum AuthenticationError implements ErrorCode {
         this.code = code;
         this.status = status;
         this.key = key;
+    }
+
+    public static AuthenticationError fromReason(AuthenticationFailure.Reason reason) {
+        return switch (reason) {
+            case INVALID -> VERIFICATION_FAILED;
+            case RATE_LIMITED -> RATE_LIMITED;
+            case UNAVAILABLE -> UNAVAILABLE;
+            case ALREADY_AUTHENTICATED -> ALREADY_AUTHENTICATED;
+        };
     }
 
     public String getCode() {
