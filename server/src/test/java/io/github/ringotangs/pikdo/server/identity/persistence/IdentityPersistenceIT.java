@@ -3,6 +3,7 @@ package io.github.ringotangs.pikdo.server.identity.persistence;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.ringotangs.pikdo.server.Application;
+import io.github.ringotangs.pikdo.server.authentication.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.identity.domain.Account;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountId;
 import io.github.ringotangs.pikdo.server.identity.domain.AccountRepository;
@@ -20,7 +21,6 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
 import io.github.ringotangs.pikdo.server.identity.domain.UserStatus;
 import io.github.ringotangs.pikdo.server.identity.domain.Username;
 import io.github.ringotangs.pikdo.server.identity.domain.UsernameIdentifier;
-import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
 import org.junit.jupiter.api.AfterEach;

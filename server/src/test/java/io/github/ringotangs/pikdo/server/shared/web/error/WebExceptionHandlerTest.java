@@ -11,10 +11,10 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
-import io.github.ringotangs.pikdo.server.identity.application.AuthenticationProperties;
-import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.authentication.application.AuthenticationProperties;
+import io.github.ringotangs.pikdo.server.authentication.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.authentication.security.ApiSecurityConfiguration;
 import io.github.ringotangs.pikdo.server.identity.domain.UserRepository;
-import io.github.ringotangs.pikdo.server.identity.security.ApiSecurityConfiguration;
 import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdConfiguration;
 import io.github.ringotangs.pikdo.server.shared.web.request.RequestIdFilter;
 

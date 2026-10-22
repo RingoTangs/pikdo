@@ -6,8 +6,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.ringotangs.pikdo.server.Application;
+import io.github.ringotangs.pikdo.server.authentication.persistence.AuthenticationRateMapper;
+import io.github.ringotangs.pikdo.server.authentication.persistence.EmailChallengeMapper;
+import io.github.ringotangs.pikdo.server.authentication.support.AuthenticationTestConfiguration;
 import io.github.ringotangs.pikdo.server.identity.domain.EmailAddress;
-import io.github.ringotangs.pikdo.server.identity.support.AuthenticationTestConfiguration;
+import io.github.ringotangs.pikdo.server.identity.persistence.UserMapper;
 
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -76,7 +79,7 @@ class DatabaseFoundationIT {
     @Autowired private PostgreSQLContainer postgres;
 
     @TestConfiguration(proxyBeanMethods = false)
-    @MapperScan("io.github.ringotangs.pikdo.server.identity.persistence")
+    @MapperScan(basePackageClasses = {UserMapper.class, EmailChallengeMapper.class})
     static class DatabaseConfiguration {
         @Bean
         @ServiceConnection
@@ -125,6 +128,9 @@ class DatabaseFoundationIT {
         assertNotNull(transactions);
         assertSame(dataSource, sessions.getConfiguration().getEnvironment().getDataSource());
         assertTrue(sessions.getConfiguration().isMapUnderscoreToCamelCase());
+        assertTrue(sessions.getConfiguration().hasMapper(UserMapper.class));
+        assertTrue(sessions.getConfiguration().hasMapper(EmailChallengeMapper.class));
+        assertTrue(sessions.getConfiguration().hasMapper(AuthenticationRateMapper.class));
         assertEquals(
                 "a'); DROP TABLE identity_users; --",
                 probe.echo("a'); DROP TABLE identity_users; --"));

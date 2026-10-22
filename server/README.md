@@ -1,6 +1,6 @@
 # Pikdo Server
 
-Pikdo 面向商家和电商运营的数据采集与分析 SaaS 平台的 Java 后端。当前采用模块化单体架构，提供 Web 基础设施、Identity 持久化和第一版邮箱验证码注册／登录。
+Pikdo 面向商家和电商运营的数据采集与分析 SaaS 平台的 Java 后端。当前采用模块化单体架构，提供 Web 基础设施、Identity 用户与账户管理，以及 Authentication 邮箱验证码注册／登录。
 
 ## 技术栈与环境
 
@@ -117,9 +117,11 @@ Account 表保存 identity_type、original_identifier 和采用 C 比较规则�
 
 - `Application.java`：启动入口，使用根包默认组件扫描。
 - `bootstrap/`：应用启动日志。
-- `identity/domain/`：身份领域对象；`identity/persistence/`：身份与验证码持久化实现。
-- `identity/application/`：邮箱认证事务与限流；`identity/web/`：认证 REST API。
-- `identity/security/`：Security、CSRF 和 Session；`identity/mail/`：SMTP 投递。
+- `identity/domain/`、`identity/persistence/`：用户、登录身份及密码凭据的领域模型与持久化。
+- `authentication/domain/`、`authentication/persistence/`：验证码挑战模型、Repository，以及验证码和限流 Mapper。
+- `authentication/application/`：认证事务、限流与摘要计算；`authentication/web/`（含 `dto/`）：认证 API 与 Swagger。
+- `authentication/security/`：Security、CSRF、Session 与历史序列化兼容；`authentication/mail/`：异步邮件投递。
+- 模块依赖为 `Authentication → Identity`，Identity 不引用 Authentication，认证代码通过 Identity 领域类型和 Repository 使用用户及账户。
 - `shared/id/`：共享业务 ID 生成。
 - `shared/web/request/`：Request ID Filter 及 Servlet 分派注册。
 - `shared/web/error/`：公共错误定义、业务异常、固定错误响应、国际化消息解析及未知异常兜底。
@@ -130,11 +132,11 @@ Account 表保存 identity_type、original_identifier 和采用 C 比较规则�
 
 Request ID 由服务端生成，通过 `X-Request-ID` 返回；客户端同名请求头不被信任。Filter 为请求、ERROR 和 ASYNC 分派绑定同一 ID，并恢复进入前的 MDC。该机制不会自动把 MDC 传播到任意后台任务线程。
 
-正式应用没有演示接口，也没有业务 Controller 或 Service。Swagger 测试中的示例操作仅来自测试 Fixture。
+正式应用提供邮箱认证 Controller 和 Service，没有演示接口。Swagger 测试中的额外示例操作仅来自测试 Fixture。
 
 ## Identity Persistence（I4-1B）
 
-Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含领域持久化 Row、原生 MyBatis Mapper、验证码挑战及限流 Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl、VerificationChallengeRepositoryImpl 四个实现。对应的领域 Repository 接口位于 `identity/domain/`，仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
+Server 按业务模块划分，模块内部按 DDD 分层；仅创建已有实现需要的层级。`identity/persistence/` 包含用户、账户和密码凭据的 Row、MyBatis Mapper，以及 UserRepositoryImpl、AccountRepositoryImpl、PasswordCredentialRepositoryImpl。对应的领域 Repository 接口位于 `identity/domain/`；验证码和限流持久化位于 `authentication/persistence/`，VerificationChallengeRepository 契约位于 `authentication/domain/`。两个模块的领域契约仅依赖领域类型与 JDK，不依赖 Spring、MyBatis 或持久化实现。Mapper 通过 `@Mapper` 自动发现，采用参数化 SQL 和显式构造映射；Row 使用 UUID、String、long、OffsetDateTime，不污染领域对象。
 
 - UserMapper：创建、按 ID 查询、状态更新；UserRepositoryImpl 通过既有工厂和 disable 正确还原 ACTIVE/DISABLED。
 - Account：`AccountId + UserId + LoginIdentifier`。sealed LoginIdentifier 包含 UsernameIdentifier、EmailIdentifier、PhoneIdentifier，分别包装 Username、EmailAddress、PhoneNumber；User 的现有语义不变。
@@ -263,15 +265,15 @@ location / {
 | 层与组件 | 职责 |
 | --- | --- |
 | EmailAuthenticationController | 路由、`@Valid` 参数校验、状态码和 Web Service 委托 |
-| identity/web/dto | 独立请求／响应 record，验证请求保留脱敏 toString |
+| authentication/web/dto | 独立请求／响应 record，验证请求保留脱敏 toString |
 | EmailAuthenticationWebService | 匿名检查、流程协调、邮箱转换、可信客户端 IP 获取和响应映射 |
 | AuthenticationSessionService | Session 流程秘密、CSRF Token、主体读取、Session ID 轮换与 SecurityContext 保存／失败清理 |
 | EmailAuthenticationService | 注册／登录核心事务，不依赖 Servlet 或 Web DTO |
 | AuthenticationRateLimiter、AsyncEmailDelivery | 现有共享限流与事务提交后异步邮件投递 |
 
-普通 Service／组件与 User、Account Repository 通过构造器注入和组件扫描装配，IdentityAuthenticationConfiguration 仅保留 Cookie、可替换 SMTP 实现及邮件线程池工厂。认证组件始终注册，不使用功能开关或额外 Profile 禁用生产认证。
+普通 Service／组件与 User、Account Repository 通过构造器注入和组件扫描装配，AuthenticationConfiguration 仅保留 Cookie、可替换 SMTP 实现及邮件线程池工厂。认证组件始终注册，不使用功能开关或额外 Profile 禁用生产认证。
 
-Web 协调和 Session 服务不添加外层事务。核心业务与限流保留原 TransactionTemplate 传播语义，异步挑战读取与失败失效保留 REQUIRES_NEW；错误尝试计数提交、业务回滚及提交后调度不受注解装配影响。Session 流程属性键保持原字符串，重构前已发送的挑战仍可在同一浏览器中完成验证。退出仍由原 Security Filter 处理，API 与公开响应不变。
+Web 协调和 Session 服务不添加外层事务。核心业务与限流保留原 TransactionTemplate 传播语义，异步挑战读取与失败失效保留 REQUIRES_NEW；错误尝试计数提交、业务回滚及提交后调度不受注解装配影响。Session 流程属性键保持原字符串，重构前已发送的挑战仍可在同一浏览器中完成验证。 `JdbcSessionConfiguration` 的专用 Spring Session 转换器只将历史 `identity.security.UserPrincipal`（版本 0，字段 userId/authenticatedAt）的序列化描述符映射到 `authentication.security.UserPrincipal`，保留用户、认证时间及权限；其他对象使用标准 Java 序列化，损坏或不兼容数据不静默降级。Cookie、Spring Security 属性键及数据库结构均不变。升级采用整批切换，新版本可读取旧 Session；新写入使用新类名，旧版本不能保证读取这些数据，因此不支持新旧版本混合运行或无条件回滚登录态。退出仍由原 Security Filter 处理，API 与公开响应不变。
 
 
 ### Swagger 认证文档

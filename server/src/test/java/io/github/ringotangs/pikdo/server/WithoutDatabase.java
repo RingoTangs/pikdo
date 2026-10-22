@@ -1,10 +1,10 @@
 package io.github.ringotangs.pikdo.server;
 
-import io.github.ringotangs.pikdo.server.identity.application.AuthenticationRateLimiter;
-import io.github.ringotangs.pikdo.server.identity.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.authentication.application.AuthenticationRateLimiter;
+import io.github.ringotangs.pikdo.server.authentication.mail.EmailCodeSender;
+import io.github.ringotangs.pikdo.server.authentication.persistence.AuthenticationRateMapper;
+import io.github.ringotangs.pikdo.server.authentication.persistence.EmailChallengeMapper;
 import io.github.ringotangs.pikdo.server.identity.persistence.AccountMapper;
-import io.github.ringotangs.pikdo.server.identity.persistence.AuthenticationRateMapper;
-import io.github.ringotangs.pikdo.server.identity.persistence.EmailChallengeMapper;
 import io.github.ringotangs.pikdo.server.identity.persistence.UserMapper;
 
 import org.springframework.test.context.TestPropertySource;
