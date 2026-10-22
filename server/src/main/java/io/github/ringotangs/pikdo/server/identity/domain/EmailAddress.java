@@ -9,12 +9,24 @@ import java.util.Objects;
  * verified delivery address or prove mailbox ownership.
  */
 public final class EmailAddress {
+    /** 完整邮箱地址的最大长度，包含 @ 和域名。 */
     private static final int MAX_ADDRESS_LENGTH = 254;
+
+    /**
+     * @ 前本地部分的最大长度。
+     */
     private static final int MAX_LOCAL_LENGTH = 64;
+
+    /** 域名中每个点分标签的最大长度。 */
     private static final int MAX_DOMAIN_LABEL_LENGTH = 63;
+
+    /** 本地部分允许的特殊字符；点号的位置和连续性单独校验。 */
     private static final String LOCAL_SPECIAL_CHARACTERS = "!#$%&'*+-/=?^_`{|}~";
 
+    /** 通过校验的原始邮箱地址，保留输入大小写。 */
     private final String originalAddress;
+
+    /** ASCII 小写规范化身份键，用于相等比较和哈希，不证明邮箱控制权。 */
     private final String canonicalAddress;
 
     private EmailAddress(String originalAddress) {
