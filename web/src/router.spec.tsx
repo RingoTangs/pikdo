@@ -11,7 +11,10 @@ vi.mock('@/routes/__root', async () => {
   const { createRootRoute } = await import('@tanstack/react-router')
   return { Route: createRootRoute() }
 })
-vi.mock('@/features/auth/api', () => ({ getCurrentUser: vi.fn() }))
+vi.mock('@/features/auth/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/auth/api')>()),
+  getCurrentUser: vi.fn(),
+}))
 
 const routers: ReturnType<typeof getRouter>[] = []
 
@@ -54,7 +57,14 @@ it('shows Pikdo with loading and anonymous states, without starter content', asy
   finish?.(null)
   expect(await screen.findByText('未登录')).toBeInTheDocument()
   expect(screen.queryByText('计数器')).not.toBeInTheDocument()
-  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '登录' })).toHaveAttribute(
+    'href',
+    '/login',
+  )
+  expect(screen.getByRole('link', { name: '注册' })).toHaveAttribute(
+    'href',
+    '/register',
+  )
 })
 
 it('shows authenticated state', async () => {

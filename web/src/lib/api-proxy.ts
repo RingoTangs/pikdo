@@ -1,8 +1,6 @@
 import type { ProxyOptions } from 'vite'
 
-export function createApiProxy(
-  target = 'http://localhost:8080',
-): Record<string, ProxyOptions> {
+export function createApiProxy(target = 'http://localhost:8080') {
   const parsed = new URL(target)
   if (
     !['http:', 'https:'].includes(parsed.protocol) ||
@@ -23,5 +21,5 @@ export function createApiProxy(
       changeOrigin: false,
       xfwd: false,
     },
-  }
+  } satisfies Record<string, ProxyOptions>
 }
