@@ -6,6 +6,7 @@ import io.github.ringotangs.pikdo.server.shared.web.error.*;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Locale;
@@ -23,6 +24,12 @@ public final class AuthenticationExceptionHandler {
     public ResponseEntity<ErrorResponse> authentication(
             AuthenticationFailure failure, Locale locale) {
         return response(AuthenticationError.fromReason(failure.reason()), locale);
+    }
+
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    public ResponseEntity<ErrorResponse> unauthenticated(
+            AuthenticationCredentialsNotFoundException failure, Locale locale) {
+        return response(CommonError.UNAUTHORIZED, locale);
     }
 
     @ExceptionHandler(DataAccessException.class)

@@ -1,6 +1,9 @@
 package io.github.ringotangs.pikdo.server.shared.web.request;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -16,6 +19,14 @@ class ClientIpResolverTest {
         request.setRemoteAddr(remote);
         for (String header : headers) request.addHeader("X-Forwarded-For", header);
         return request;
+    }
+
+    @Test
+    void missingRemoteAddressFallsBackWithoutTrustingForwardedHeaders() {
+        var request = mock(HttpServletRequest.class);
+        when(request.getRemoteAddr()).thenReturn(null);
+        assertEquals("unknown", new ClientIpResolver(List.of("10.0.0.0/8")).resolve(request));
+        verify(request, never()).getHeaders(anyString());
     }
 
     @Test

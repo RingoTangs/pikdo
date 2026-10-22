@@ -37,11 +37,12 @@ public final class ActiveUserSessionFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null
-                && authentication.getPrincipal() instanceof UserPrincipal principal) {
-            var user = users.findById(new UserId(UUID.fromString(principal.userId())));
+                && authentication.getPrincipal()
+                        instanceof UserPrincipal(String userId, long authenticatedAt)) {
+            var user = users.findById(new UserId(UUID.fromString(userId)));
             if (user.isEmpty()
                     || user.get().getStatus() != UserStatus.ACTIVE
-                    || clock.millis() - principal.authenticatedAt()
+                    || clock.millis() - authenticatedAt
                             >= properties.absoluteSessionLifetime().toMillis()) {
                 var session = req.getSession(false);
                 if (session != null) session.invalidate();

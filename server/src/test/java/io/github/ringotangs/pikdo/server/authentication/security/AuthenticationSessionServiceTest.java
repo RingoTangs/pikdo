@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpSession;
 
 import org.junit.jupiter.api.*;
 import org.springframework.mock.web.*;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.*;
 import org.springframework.security.web.authentication.session.*;
@@ -124,6 +125,41 @@ class AuthenticationSessionServiceTest {
                                                 new UserId(UUID.randomUUID()), req, response))
                         .reason());
         assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void currentPrincipalRejectsMissingAuthentication() {
+        assertThrows(AuthenticationCredentialsNotFoundException.class, service::currentPrincipal);
+    }
+
+    @Test
+    void currentPrincipalRejectsUnauthenticatedTokens() {
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        UsernamePasswordAuthenticationToken.unauthenticated(
+                                new UserPrincipal("user", clock.millis()), null));
+        assertThrows(AuthenticationCredentialsNotFoundException.class, service::currentPrincipal);
+    }
+
+    @Test
+    void currentPrincipalRejectsUnexpectedPrincipalTypes() {
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        UsernamePasswordAuthenticationToken.authenticated(
+                                "sensitive-principal", null, List.of()));
+        var failure =
+                assertThrows(
+                        AuthenticationCredentialsNotFoundException.class,
+                        service::currentPrincipal);
+        assertFalse(failure.getMessage().contains("sensitive-principal"));
+    }
+
+    @Test
+    void currentPrincipalRejectsNullPrincipals() {
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        UsernamePasswordAuthenticationToken.authenticated(null, null, List.of()));
+        assertThrows(AuthenticationCredentialsNotFoundException.class, service::currentPrincipal);
     }
 
     @Test

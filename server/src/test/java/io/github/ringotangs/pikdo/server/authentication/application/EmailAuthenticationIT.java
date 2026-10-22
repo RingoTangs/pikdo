@@ -9,6 +9,7 @@ import ch.qos.logback.core.read.ListAppender;
 
 import io.github.ringotangs.pikdo.server.Application;
 import io.github.ringotangs.pikdo.server.authentication.domain.CodePurpose;
+import io.github.ringotangs.pikdo.server.authentication.domain.VerificationChallenge;
 import io.github.ringotangs.pikdo.server.authentication.domain.VerificationChallengeRepository;
 import io.github.ringotangs.pikdo.server.authentication.mail.AsyncEmailDelivery;
 import io.github.ringotangs.pikdo.server.authentication.mail.EmailCodeSender;
@@ -228,6 +229,59 @@ class EmailAuthenticationIT {
 
     long count(String table) {
         return jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
+    }
+
+    @Autowired AuthenticationCleanup cleanup;
+
+    @Test
+    void cleanupKeepsChallengeRetentionAndUnexpiredRateWindows() {
+        var now = OffsetDateTime.ofInstant(clock.instant(), clock.getZone());
+        var transaction = new TransactionTemplate(transactions);
+        transaction.executeWithoutResult(
+                status -> {
+                    for (int hours : new int[] {25, 23})
+                        challenges.insert(
+                                VerificationChallenge.create(
+                                        UuidV7Generator.generate(),
+                                        CodePurpose.REGISTER,
+                                        EmailAddress.create("cleanup" + hours + "@example.com"),
+                                        new byte[32],
+                                        new byte[32],
+                                        true,
+                                        5,
+                                        now.minusHours(hours),
+                                        null,
+                                        null));
+                });
+        String insert =
+                "INSERT INTO identity_auth_rate_limits(scope,subject_digest,window_started_at,expires_at,next_allowed_at,request_count) VALUES(?,?,?,?,?,1)";
+        jdbc.update(
+                insert,
+                "cleanup-expired",
+                new byte[32],
+                now.minusHours(2),
+                now.minusHours(1),
+                now.minusHours(1));
+        jdbc.update(
+                insert, "cleanup-active", new byte[32], now, now.plusHours(1), now.minusSeconds(1));
+        jdbc.update(
+                insert,
+                "cleanup-cooldown",
+                new byte[32],
+                now.minusHours(2),
+                now.minusHours(1),
+                now.plusHours(1));
+        cleanup.clean();
+        assertEquals(1, count("identity_email_challenges"));
+        assertEquals(
+                "cleanup23@example.com",
+                jdbc.queryForObject(
+                        "SELECT canonical_email FROM identity_email_challenges", String.class));
+        assertEquals(
+                Set.of("cleanup-active", "cleanup-cooldown"),
+                new HashSet<>(
+                        jdbc.queryForList(
+                                "SELECT scope FROM identity_auth_rate_limits", String.class)));
     }
 
     @ParameterizedTest
@@ -560,15 +614,15 @@ class EmailAuthenticationIT {
                         throw new DataIntegrityViolationException("Test failure");
                     }
 
-                    public Optional<Account> findById(AccountId id) {
+                    public Optional<Account> findById(@NonNull AccountId id) {
                         return accounts.findById(id);
                     }
 
-                    public Optional<Account> findByIdentifier(LoginIdentifier identifier) {
+                    public Optional<Account> findByIdentifier(@NonNull LoginIdentifier identifier) {
                         return accounts.findByIdentifier(identifier);
                     }
 
-                    public List<Account> findByUserId(UserId id) {
+                    public List<Account> findByUserId(@NonNull UserId id) {
                         return accounts.findByUserId(id);
                     }
                 };

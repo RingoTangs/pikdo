@@ -1,6 +1,8 @@
 package io.github.ringotangs.pikdo.server.authentication.web;
 
 import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -18,10 +20,12 @@ import io.github.ringotangs.pikdo.server.shared.web.error.ErrorMessageResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.json.JsonCompareMode;
@@ -111,6 +115,22 @@ class EmailAuthenticationControllerTest {
                                         "{\"userId\":\"user-id\",\"status\":\"ACTIVE\"}",
                                         JsonCompareMode.STRICT));
         verify(service).me();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"en", "zh"})
+    @WithMockUser
+    void missingPrincipalReturnsUnifiedUnauthorizedInsteadOfFallback500(String language)
+            throws Exception {
+        when(service.me())
+                .thenThrow(new AuthenticationCredentialsNotFoundException("sensitive-detail"));
+        mvc.perform(get("/api/v1/auth/me").header("Accept-Language", language))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.code").value("COMMON_UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$").value(aMapWithSize(2)))
+                .andExpect(content().string(not(containsString("sensitive-detail"))));
     }
 
     @ParameterizedTest

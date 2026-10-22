@@ -2,6 +2,8 @@ package io.github.ringotangs.pikdo.server.shared.web.request;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.jspecify.annotations.Nullable;
+
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -50,7 +52,7 @@ public final class ClientIpResolver {
         return trusted.stream().anyMatch(network -> network.matches(address));
     }
 
-    private static InetAddress literal(String value) {
+    private static InetAddress literal(@Nullable String value) {
         if (value == null || value.isEmpty())
             throw new IllegalArgumentException("Invalid IP literal");
         if (value.contains(":")) {

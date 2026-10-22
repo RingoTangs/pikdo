@@ -1,8 +1,10 @@
 package io.github.ringotangs.pikdo.server.authentication.mail;
 
 import io.github.ringotangs.pikdo.server.authentication.domain.CodePurpose;
+import io.github.ringotangs.pikdo.server.authentication.domain.VerificationChallenge;
 import io.github.ringotangs.pikdo.server.authentication.domain.VerificationChallengeRepository;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -62,7 +64,8 @@ public final class AsyncEmailDelivery {
 
     private void deliver(UUID id, CodePurpose purpose, String code) {
         try {
-            var challenge = transactions.execute(status -> challenges.lockById(id).orElse(null));
+            @Nullable VerificationChallenge challenge =
+                    transactions.execute(status -> challenges.lockById(id).orElse(null));
             if (challenge == null || !challenge.canDeliver(now())) return;
             sender.send(challenge.originalEmail(), purpose, code);
         } catch (RuntimeException failure) {

@@ -8,6 +8,7 @@ import io.github.ringotangs.pikdo.server.authentication.mail.AsyncEmailDelivery;
 import io.github.ringotangs.pikdo.server.identity.domain.*;
 import io.github.ringotangs.pikdo.server.shared.id.UuidV7Generator;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -116,18 +117,20 @@ public final class EmailAuthenticationService {
             String flow,
             String source) {
         rates.verify(source);
-        Optional<UserId> result;
+        @Nullable UserId result;
         try {
             result =
                     transactions.execute(
-                            status -> verifyAndConsume(purpose, challengeId, email, code, flow));
+                            status ->
+                                    verifyAndConsume(purpose, challengeId, email, code, flow)
+                                            .orElse(null));
         } catch (DuplicateKeyException conflict) {
             // 并发注册只能有一个赢家；失败事务中的用户和绑定一起回滚。
             transactions.executeWithoutResult(status -> challenges.invalidate(challengeId, now()));
             throw invalid();
         }
-        if (result == null || result.isEmpty()) throw invalid();
-        return result.get();
+        if (result == null) throw invalid();
+        return result;
     }
 
     private Optional<UserId> verifyAndConsume(

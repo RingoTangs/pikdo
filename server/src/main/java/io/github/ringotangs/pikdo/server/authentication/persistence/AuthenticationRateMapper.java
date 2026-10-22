@@ -33,5 +33,5 @@ public interface AuthenticationRateMapper {
 
     @Delete(
             "DELETE FROM identity_auth_rate_limits WHERE expires_at<#{now} AND next_allowed_at<#{now}")
-    int cleanup(OffsetDateTime now);
+    void cleanup(OffsetDateTime now);
 }

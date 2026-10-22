@@ -42,7 +42,7 @@ public interface EmailChallengeMapper {
 
     @Update(
             "UPDATE identity_email_challenges SET invalidated_at=#{now} WHERE flow_digest=#{flow} AND canonical_email=#{email} AND purpose=#{purpose} AND consumed_at IS NULL AND invalidated_at IS NULL")
-    int invalidateFlow(
+    void invalidateFlow(
             @Param("flow") byte[] flow,
             @Param("email") String email,
             @Param("purpose") String purpose,
@@ -65,5 +65,5 @@ public interface EmailChallengeMapper {
     Optional<String> lockUser(@Param("id") UUID id);
 
     @Delete("DELETE FROM identity_email_challenges WHERE expires_at<#{cutoff}")
-    int cleanup(OffsetDateTime cutoff);
+    void cleanup(OffsetDateTime cutoff);
 }

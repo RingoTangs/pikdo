@@ -16,6 +16,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
@@ -91,15 +92,14 @@ public class ApiSecurityConfiguration {
             UserRepository users,
             Clock clock,
             AuthenticationRateLimiter rates,
-            AuthenticationProperties properties)
-            throws Exception {
+            AuthenticationProperties properties) {
         http.securityMatcher("/api/**")
                 .csrf(c -> c.csrfTokenRepository(csrf))
                 .securityContext(
                         c -> c.securityContextRepository(contexts).requireExplicitSave(true))
-                .requestCache(c -> c.disable())
-                .formLogin(c -> c.disable())
-                .httpBasic(c -> c.disable())
+                .requestCache(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(
                         a ->
                                 a.requestMatchers(

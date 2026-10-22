@@ -1,0 +1,10 @@
+{
+  "properties": [
+    {
+      "name": "pikdo.auth.trusted-proxies",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Explicitly trusted reverse proxy IP addresses or CIDR ranges. Forwarded client addresses are ignored for all other peers.",
+      "defaultValue": []
+    }
+  ]
+}

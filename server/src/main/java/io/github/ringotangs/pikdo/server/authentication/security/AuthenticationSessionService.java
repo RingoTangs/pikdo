@@ -5,6 +5,7 @@ import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 
 import jakarta.servlet.http.*;
 
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -65,8 +66,12 @@ public final class AuthenticationSessionService {
     }
 
     public UserPrincipal currentPrincipal() {
-        return (UserPrincipal)
-                SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || !(authentication.getPrincipal() instanceof UserPrincipal principal))
+            throw new AuthenticationCredentialsNotFoundException("Authentication required");
+        return principal;
     }
 
     public void establish(UserId user, HttpServletRequest request, HttpServletResponse response) {

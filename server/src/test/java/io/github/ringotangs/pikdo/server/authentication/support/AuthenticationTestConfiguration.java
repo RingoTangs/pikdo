@@ -4,6 +4,7 @@ import io.github.ringotangs.pikdo.server.authentication.domain.CodePurpose;
 import io.github.ringotangs.pikdo.server.authentication.mail.EmailCodeSender;
 
 import org.awaitility.Awaitility;
+import org.jspecify.annotations.NonNull;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -51,7 +52,8 @@ public class AuthenticationTestConfiguration {
             release.countDown();
         }
 
-        public void send(String recipient, CodePurpose purpose, String code) {
+        public void send(
+                @NonNull String recipient, @NonNull CodePurpose purpose, @NonNull String code) {
             entered.countDown();
             try {
                 if (!release.await(10, TimeUnit.SECONDS))

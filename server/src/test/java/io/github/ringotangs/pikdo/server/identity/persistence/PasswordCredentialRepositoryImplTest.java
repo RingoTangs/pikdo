@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.ringotangs.pikdo.server.identity.domain.PasswordCredential;
 import io.github.ringotangs.pikdo.server.identity.domain.UserId;
 
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -142,14 +143,15 @@ class PasswordCredentialRepositoryImplTest {
         private Optional<PasswordCredentialRow> row = Optional.empty();
 
         @Override
-        public int insert(UUID userId, String hash, String inputVersion) {
+        public int insert(
+                @NonNull UUID userId, @NonNull String hash, @NonNull String inputVersion) {
             calls++;
             arguments = Arrays.asList(userId, hash, inputVersion);
             return affected;
         }
 
         @Override
-        public Optional<PasswordCredentialRow> findByUserId(UUID userId) {
+        public Optional<PasswordCredentialRow> findByUserId(@NonNull UUID userId) {
             calls++;
             arguments = List.of(userId);
             return row;
@@ -157,7 +159,10 @@ class PasswordCredentialRepositoryImplTest {
 
         @Override
         public int updateIfVersionMatches(
-                UUID userId, long expectedVersion, String hash, String inputVersion) {
+                @NonNull UUID userId,
+                long expectedVersion,
+                @NonNull String hash,
+                @NonNull String inputVersion) {
             calls++;
             arguments = Arrays.asList(userId, expectedVersion, hash, inputVersion);
             return affected;
